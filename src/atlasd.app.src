@@ -1,0 +1,15 @@
+{application, atlasd,
+ [
+  {description, "Distributed process supervisor"},
+  {vsn, "0.0.1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  sasl,
+                  gproc,
+                  yamerl
+                 ]},
+  {mod, { atlasd_app, []}},
+  {env, []}
+ ]}.
