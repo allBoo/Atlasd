@@ -1,3 +1,6 @@
+.idea/
+.rebar/
+
 deps/gproc
 deps/yamerl
 

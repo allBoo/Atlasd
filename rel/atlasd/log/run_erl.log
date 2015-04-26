@@ -1,0 +1,8 @@
+run_erl [23453] Sun Apr 26 16:20:38 2015
+Args before exec of shell:
+run_erl [23453] Sun Apr 26 16:20:38 2015
+argv[0] = sh
+run_erl [23453] Sun Apr 26 16:20:38 2015
+argv[1] = -c
+run_erl [23453] Sun Apr 26 16:20:38 2015
+argv[2] = exec /home/alboo/apps/atlasd/rel/atlasd/bin/atlasd console \'\' 
