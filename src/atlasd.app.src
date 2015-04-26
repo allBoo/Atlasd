@@ -11,5 +11,7 @@
                   yamerl
                  ]},
   {mod, { atlasd_app, []}},
-  {env, []}
+  {env, [
+    {config, "/apps/atlasd/etc/atlasd.yml"}
+  ]}
  ]}.

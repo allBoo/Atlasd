@@ -67,7 +67,7 @@ get(Key, Default) ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([]) ->
-  {ok, #state{config = read_config("/apps/atlasd/etc/atlasd.yml")}}.
+  {ok, #state{config = read_config(locate_config())}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -166,6 +166,27 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+locate_config() ->
+  DefaultPaths = ["/etc/atlasd.yml", "etc/atlasd.yml", "/apps/atlasd/etc/atlasd.yml"],
+  Paths = case application:get_env(atlasd, config) of
+            {ok, P} -> [P | DefaultPaths];
+            _ -> DefaultPaths
+          end,
+
+  Exists = lists:filtermap(fun(Path) ->
+    case filelib:is_file(Path) and not filelib:is_dir(Path) of
+      true -> {true, Path};
+      _ -> false
+    end
+  end, Paths),
+  select_config(Exists).
+
+select_config([]) ->
+  ?THROW_ERROR(?ERROR_CONFIG_NOT_FOUND);
+
+select_config(Paths) ->
+  lists:nth(1, Paths).
 
 read_config(File) ->
   lists:nth(1, yamerl_constr:file(File)).

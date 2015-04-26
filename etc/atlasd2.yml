@@ -1,0 +1,44 @@
+
+################################### Cluster ###################################
+
+cluster:
+  name: atlasd
+  hosts: ["192.168.2.1", "192.168.2.5"]
+  cookie: "SecretCookie"
+
+#################################### Node #####################################
+
+node:
+  master: true
+  worker: true
+
+#################################### Paths ####################################
+
+path:
+# Path to directory containing configuration (this file and logging.yml):
+  conf: /apps/atlasd/etc/
+
+# Path to temporary files:
+  work: /tmp
+
+# Path to log files:
+  logs: /var/log/atlasd
+
+############################## Network And HTTP ###############################
+
+# internal communication port
+inet:
+  host: 192.168.2.5
+  port: 9100
+
+http:
+# Disable HTTP completely:
+  enabled: true
+
+# Set both 'bind_host' and 'publish_host':
+  host: 127.0.0.1
+
+# Set a custom port to listen for HTTP traffic:
+  port: 9900
+
+############################## Workers ###############################

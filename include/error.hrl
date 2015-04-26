@@ -27,3 +27,4 @@
 -define(ERROR_WRONG_CALL, #error{code = 10, message = <<"Wrong call"/utf8>>}).
 -define(ERROR_UNDEFINED, #error{code = 100, message = <<"Что-то пошло не так"/utf8>>}).
 -define(ERROR_COOKIE, #error{code = 101, message = <<"Не указана cookie"/utf8>>}).
+-define(ERROR_CONFIG_NOT_FOUND, #error{code = 102, message = "Config file not found"}).
