@@ -1,6 +1,7 @@
 -module(atlasd_app).
 
 -behaviour(application).
+-include_lib("atlasd.hrl").
 
 %% Application callbacks
 -export([start/2, stop/1]).
@@ -10,7 +11,23 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    atlasd_sup:start_link().
+  AppSup = atlasd_sup:start_link(),
+
+  %% start worker sup
+  case config:get("node.worker") of
+    true -> supervisor:start_child(atlasd_sup, ?CHILD_SUP(workers_sup));
+    _ -> ok
+  end,
+
+  %% start master
+  case config:get("node.master") of
+    true -> supervisor:start_child(atlasd_sup, ?CHILD_SUP(master_sup));
+    _ -> ok
+  end,
+
+  net:connect(),
+
+  AppSup.
 
 stop(_State) ->
-    ok.
+  ok.
