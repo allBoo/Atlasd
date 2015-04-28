@@ -25,7 +25,7 @@ start(_StartType, _StartArgs) ->
     _ -> ok
   end,
 
-  net:connect(),
+  cluster:connect(),
 
   AppSup.
 

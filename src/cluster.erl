@@ -4,16 +4,21 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created : 28. апр 2015 1:27
+%%% Created : 27. апр 2015 1:59
 %%%-------------------------------------------------------------------
--module(master).
+-module(cluster).
 -author("alboo").
 
 -behaviour(gen_server).
 -include_lib("atlasd.hrl").
 
 %% API
--export([start_link/0]).
+-export([start_link/0,
+  connect/0,
+  poll/1,
+  poll/2,
+  notify/1,
+  notify/2]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -25,7 +30,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {role, master, master_node}).
+-record(state, {node, nodes, known, master}).
 
 %%%===================================================================
 %%% API
@@ -41,6 +46,26 @@
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+%% connect to all nodes
+connect()->
+  gen_server:call(?SERVER, connect, infinity).
+
+%% send request to all known nodes
+poll(Request) ->
+  gen_server:call(?SERVER, {poll, Request}, infinity).
+
+%% send request to Node
+poll(Node, Request) ->
+  gen_server:call(?SERVER, {poll, Node, Request}).
+
+%% send async notification to all known nodes
+notify(Message) ->
+  gen_server:call(?SERVER, {notify, Message}, infinity).
+
+%% send async notification to node
+notify(Node, Message) ->
+  gen_server:call(?SERVER, {notify, Node, Message}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -61,18 +86,29 @@ start_link() ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([]) ->
-  reg:bind(node),
-  ok = global:sync(),
+  Port = config:get("inet.port", 9100, integer),
+  application:set_env(kernel, inet_dist_listen_min, Port),
 
-  case whereis_master() of
+  Node = list_to_atom(config:get("cluster.name", "atlasd") ++ "@" ++ config:get("inet.host", "127.0.0.1")),
+  {ok, _} = net_kernel:start([Node, longnames]),
+
+  Cookie = case config:get("cluster.cookie") of
     undefined ->
-      ?DBG("No master found. Wait for 15 secs to become as master", []),
-      {ok, #state{role = undefined, master = undefined, master_node = undefined}, 15000};
+      ?THROW_ERROR(?ERROR_COOKIE);
+    X -> list_to_atom(X)
+  end,
 
-    {Master, MasterNode} ->
-      ?DBG("Detected master ~p", [Master]),
-      {ok, #state{role = slave, master = Master, master_node = MasterNode}}
-  end.
+  erlang:set_cookie(Node, Cookie),
+
+  Nodes = lists:map(fun(El) ->
+    NodeName = config:get("cluster.name", "atlasd"),
+    list_to_atom(NodeName ++ "@" ++ El)
+  end, config:get("cluster.hosts")),
+  net_kernel:allow(Nodes),
+
+  net_kernel:monitor_nodes(true),
+
+  {ok, #state{node = Node, nodes = Nodes, known = []}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -89,7 +125,34 @@ init([]) ->
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
   {stop, Reason :: term(), NewState :: #state{}}).
-handle_call(_Request, _From, State) ->
+
+%% connect to all nodes
+handle_call(connect, _From, State) ->
+  [net_kernel:connect_node(Node) || Node <- State#state.nodes],
+  ok = global:sync(),
+  {reply, ok, State};
+
+
+%% send sync request to all known nodes
+handle_call({poll, Message}, _From, State) ->
+  {reply, gen_server:multi_call(State#state.known, atlasd, Message), State};
+
+%% send sync request to node
+handle_call({poll, Node, Message}, _From, State) ->
+  {reply, gen_server:call({atlasd, Node}, Message), State};
+
+
+%% send async notification to all known nodes
+handle_call({notify, Message}, _From, State) ->
+  {reply, gen_server:abcast(State#state.known, atlasd, Message), State};
+
+%% send async notification to node
+handle_call({notify, Node, Message}, _From, State) ->
+  {reply, gen_server:cast({atlasd, Node}, Message), State};
+
+%%
+handle_call(Request, _From, State) ->
+  ?DBG("Missed call request ~p", [Request]),
   {reply, ok, State}.
 
 %%--------------------------------------------------------------------
@@ -103,7 +166,8 @@ handle_call(_Request, _From, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
-handle_cast(_Request, State) ->
+handle_cast(Request, State) ->
+  ?DBG("Missed cast request ~p", [Request]),
   {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -121,29 +185,27 @@ handle_cast(_Request, State) ->
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
 
-%% not recieved messages within 15secs after start
-%% try to become as master
-handle_info(timeout, State) ->
-  {noreply, try_become_master(State)};
+handle_info({nodeup, Node}, State) ->
+  Known = case lists:member(Node, State#state.known) of
+            false ->
+              ?DBG("Found new node ~p~n", [Node]),
+              reg:broadcast(node, self(), {node, up, Node}),
+              [Node | State#state.known];
 
-%% nodes state messages
-handle_info({_From, {node, _NodeStatus, _Node}}, State) when State#state.role == undefined ->
-  {noreply, try_become_master(State)};
+            _ -> State#state.known
+          end,
 
-handle_info({_From, {node, down, Node}}, State) when State#state.role == slave,
-                                                     State#state.master_node == Node ->
-  ?DBG("Master node ~p down, try to become master", [Node]),
-  {noreply, try_become_master(State)};
+  {noreply, State#state{known = Known}};
 
+handle_info({nodedown, Node}, State) ->
+  ?DBG("Node down ~p~n", [Node]),
+  reg:broadcast(node, self(), {node, down, Node}),
 
-handle_info({_From, {node, up, Node}}, State) when State#state.role == master ->
-  ?DBG("New node has connected ~p. Send master notification", [Node]),
-  cluster:notify(Node, {master, self()}),
-  {noreply, State};
+  {noreply, State#state{known = lists:delete(Node, State#state.known)}};
 
 
 handle_info(Info, State) ->
-  ?DBG("MASTER RECIEVE ~p", [Info]),
+  ?DBG("NET INFO ~p~n", [Info]),
   {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -179,23 +241,3 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-try_become_master(State) ->
-  case global:register_name(?MODULE, self()) of
-    yes ->
-      ?DBG("Elected as master ~p [~p]", [node(), self()]),
-      %% send notification to all
-      cluster:notify({master, self()}),
-      State#state{role = master, master = self()};
-
-    no  ->
-      {Master, MasterNode} = whereis_master(),
-      ?DBG("Detected master ~p", [Master]),
-      State#state{role = slave,  master = Master, master_node = MasterNode}
-  end.
-
-whereis_master() ->
-  case global:whereis_name(?MODULE) of
-    undefined -> undefined;
-    Pid -> {Pid, node(Pid)}
-  end.

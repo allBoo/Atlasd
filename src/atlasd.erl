@@ -2,18 +2,18 @@
 %%% @author alboo
 %%% @copyright (C) 2015, <COMPANY>
 %%% @doc
-%%%
+%%%   this is a main API server
 %%% @end
-%%% Created : 27. апр 2015 1:59
+%%% Created : 29. апр 2015 0:56
 %%%-------------------------------------------------------------------
--module(net).
+-module(atlasd).
 -author("alboo").
 
 -behaviour(gen_server).
 -include_lib("atlasd.hrl").
 
 %% API
--export([start_link/0, connect/0]).
+-export([start_link/0]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -25,7 +25,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {node, nodes, known, master}).
+-record(state, {}).
 
 %%%===================================================================
 %%% API
@@ -41,10 +41,6 @@
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
-
-connect()->
-  gen_server:call(?SERVER, connect, infinity).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -65,32 +61,7 @@ connect()->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([]) ->
-  Port = case config:get("inet.port", 9100) of
-           I when is_integer(I) -> I;
-           S -> list_to_integer(S)
-         end,
-  application:set_env(kernel, inet_dist_listen_min, Port),
-
-  Node = list_to_atom(config:get("cluster.name", "atlasd") ++ "@" ++ config:get("inet.host", "127.0.0.1")),
-  net_kernel:start([Node, longnames]),
-
-  Cookie = case config:get("cluster.cookie") of
-    undefined ->
-      ?THROW_ERROR(?ERROR_COOKIE);
-    X -> list_to_atom(X)
-  end,
-
-  erlang:set_cookie(Node, Cookie),
-
-  Nodes = lists:map(fun(El) ->
-    NodeName = config:get("cluster.name", "atlasd"),
-    list_to_atom(NodeName ++ "@" ++ El)
-  end, config:get("cluster.hosts")),
-  net_kernel:allow(Nodes),
-
-  net_kernel:monitor_nodes(true),
-
-  {ok, #state{node = Node, nodes = Nodes, known = []}}.
+  {ok, #state{}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -107,12 +78,8 @@ init([]) ->
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
   {stop, Reason :: term(), NewState :: #state{}}).
-
-handle_call(connect, _From, State) ->
-  [net_kernel:connect_node(Node) || Node <- State#state.nodes],
-  {reply, ok, State};
-
-handle_call(_Request, _From, State) ->
+handle_call(Request, From, State) ->
+  ?DBG("Get request ~p from ~p", [Request, From]),
   {reply, ok, State}.
 
 %%--------------------------------------------------------------------
@@ -126,7 +93,8 @@ handle_call(_Request, _From, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
-handle_cast(_Request, State) ->
+handle_cast(Request, State) ->
+  ?DBG("Get notice ~p", [Request]),
   {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -143,28 +111,7 @@ handle_cast(_Request, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
-
-handle_info({nodeup, Node}, State) ->
-  Known = case lists:member(Node, State#state.known) of
-            false ->
-              ?DBG("Found new node ~p~n", [Node]),
-              reg:broadcast(node, self(), {node, up, Node}),
-              [Node | State#state.known];
-
-            _ -> State#state.known
-          end,
-
-  {noreply, State#state{known = Known}};
-
-handle_info({nodedown, Node}, State) ->
-  ?DBG("Node down ~p~n", [Node]),
-  reg:broadcast(node, self(), {node, down, Node}),
-
-  {noreply, State#state{known = lists:delete(Node, State#state.known)}};
-
-
-handle_info(Info, State) ->
-  ?DBG("NET INFO ~p~n", [Info]),
+handle_info(_Info, State) ->
   {noreply, State}.
 
 %%--------------------------------------------------------------------

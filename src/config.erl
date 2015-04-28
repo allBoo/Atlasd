@@ -13,7 +13,7 @@
 -include_lib("atlasd.hrl").
 
 %% API
--export([start_link/0, get/1, get/2]).
+-export([start_link/0, get/1, get/2, get/3]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -47,6 +47,30 @@ get(Key) ->
 
 get(Key, Default) ->
   gen_server:call(?MODULE, {get, Key, Default}).
+
+get(Key, Default, integer) ->
+  case get(Key, Default) of
+    I when is_integer(I) -> I;
+    A when is_atom(A) -> list_to_integer(atom_to_list(A));
+    L when is_list(L) -> list_to_integer(L);
+    _ -> Default
+  end;
+
+get(Key, Default, atom) ->
+  case get(Key, Default) of
+    I when is_integer(I) -> list_to_atom(integer_to_list(I));
+    A when is_atom(A) -> A;
+    L when is_list(L) -> list_to_atom(L);
+    _ -> Default
+  end;
+
+get(Key, Default, string) ->
+  case get(Key, Default) of
+    I when is_integer(I) -> integer_to_list(I);
+    A when is_atom(A) -> atom_to_list(A);
+    L when is_list(L) -> L;
+    _ -> Default
+  end.
 
 %%%===================================================================
 %%% gen_server callbacks

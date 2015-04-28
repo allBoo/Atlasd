@@ -42,3 +42,15 @@ http:
   port: 9900
 
 ############################## Workers ###############################
+workers:
+  task-listen-low:
+    command: "php /apps/ds/artisan tinker"
+    procs:
+      min: 1
+      max: 15
+
+  task-listen-high:
+    command: "php /apps/ds/artisan tinker"
+    procs:
+      min: 1
+      each: 1
