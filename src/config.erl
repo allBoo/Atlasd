@@ -70,6 +70,16 @@ get(Key, Default, string) ->
     A when is_atom(A) -> atom_to_list(A);
     L when is_list(L) -> L;
     _ -> Default
+  end;
+
+get(Key, Default, boolean) ->
+  case get(Key, Default) of
+    true -> true;
+    "true" -> true;
+    false -> false;
+    "false" -> false;
+    I when is_integer(I) -> I =/= 0;
+    _ -> Default
   end.
 
 %%%===================================================================

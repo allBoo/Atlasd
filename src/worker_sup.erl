@@ -4,9 +4,9 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created : 28. апр 2015 1:20
+%%% Created : 29. апр 2015 23:27
 %%%-------------------------------------------------------------------
--module(workers_sup).
+-module(worker_sup).
 -author("alboo").
 
 -behaviour(supervisor).
@@ -14,15 +14,14 @@
 
 %% API
 -export([
-  start_link/0,
-  start_worker/1,
-  get_workers/0
+  start_link/1,
+  get_worker/1,
+  get_worker_name/1
 ]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
--define(SERVER, ?MODULE).
 
 %%%===================================================================
 %%% API functions
@@ -34,22 +33,46 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link() ->
+-spec(start_link(Worker :: #worker{}) ->
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
-start_link() ->
-  supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+start_link(Worker) when is_record(Worker, worker) ->
+  case supervisor:start_link(?MODULE, []) of
+    {ok, SupPid} when is_pid(SupPid) ->
+      %% start worker
+      case supervisor:start_child(SupPid, ?CHILD(worker, [Worker])) of
+        {ok, WorkerPid} when is_pid(WorkerPid) ->
+          %% start monitors
+          WorkerData = [SupPid, WorkerPid, Worker],
+          {ok, _} = supervisor:start_child(SupPid, ?CHILD(worker_monitor_default, WorkerData)),
+
+          %% return supervisor ref
+          {ok, SupPid};
+
+        WorkerError ->
+          ?DBG("Can not start worker due to ~p", [WorkerError]),
+          WorkerError
+      end;
+
+    Err ->
+      ?DBG("Can not start worker supervisor due to ~p", [Err]),
+      Err
+  end.
 
 
-%%
-start_worker(Worker) when is_record(Worker, worker) ->
-  supervisor:start_child(?SERVER, [Worker]).
+get_worker(SupRef) ->
+  case lists:keyfind([worker], 4, supervisor:which_children(SupRef)) of
+    {_, Pid, _, _} when is_pid(Pid) ->
+      Pid;
+    _ -> false
+  end.
 
-%%
-get_workers() ->
-  lists:map(fun({_, WorkerSup, _, _}) ->
-    worker_sup:get_worker_name(WorkerSup)
-  end, supervisor:which_children(?SERVER)).
 
+get_worker_name(SupRef) ->
+  case get_worker(SupRef) of
+    Pid when is_pid(Pid) ->
+      {Pid, worker:get_name(Pid)};
+    _ -> false
+  end.
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -73,9 +96,7 @@ get_workers() ->
   ignore |
   {error, Reason :: term()}).
 init([]) ->
-  {ok, { {simple_one_for_one, 5, 10}, [
-    {worker_sup, {worker_sup, start_link, []}, transient, infinity, supervisor, [worker_sup]}
-  ]}}.
+  {ok, { {rest_for_one, 5, 10}, []} }.
 
 %%%===================================================================
 %%% Internal functions

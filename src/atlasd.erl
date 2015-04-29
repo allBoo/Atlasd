@@ -13,7 +13,10 @@
 -include_lib("atlasd.hrl").
 
 %% API
--export([start_link/0]).
+-export([
+  start_link/0,
+  is_worker/0
+]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -25,7 +28,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {}).
+-record(state, {master}).
 
 %%%===================================================================
 %%% API
@@ -41,6 +44,10 @@
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+
+is_worker() ->
+  config:get("node.worker", false, boolean).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -78,6 +85,19 @@ init([]) ->
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
   {stop, Reason :: term(), NewState :: #state{}}).
+
+
+handle_call(is_worker, _From, State) ->
+  {reply, is_worker(), State};
+
+
+handle_call(get_workers, _From, State) ->
+  case is_worker() of
+    true -> {reply, workers_sup:get_workers(), State};
+    _ -> {reply, ignore, State}
+  end;
+
+
 handle_call(Request, From, State) ->
   ?DBG("Get request ~p from ~p", [Request, From]),
   {reply, ok, State}.
@@ -93,6 +113,12 @@ handle_call(Request, From, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
+
+handle_cast({master, Pid}, State) ->
+  ?DBG("Recieve master pid ~p", [Pid]),
+  {noreply, State#state{master = Pid}};
+
+
 handle_cast(Request, State) ->
   ?DBG("Get notice ~p", [Request]),
   {noreply, State}.

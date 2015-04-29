@@ -4,21 +4,19 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created : 27. апр 2015 1:59
+%%% Created : 30. апр 2015 0:39
 %%%-------------------------------------------------------------------
--module(cluster).
+-module(worker).
 -author("alboo").
 
 -behaviour(gen_server).
 -include_lib("atlasd.hrl").
 
 %% API
--export([start_link/0,
-  connect/0,
-  poll/1,
-  poll/2,
-  notify/1,
-  notify/2]).
+-export([
+  start_link/1,
+  get_name/1
+]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -28,9 +26,7 @@
   terminate/2,
   code_change/3]).
 
--define(SERVER, ?MODULE).
-
--record(state, {node, nodes, known, bad, master}).
+-record(state, {config}).
 
 %%%===================================================================
 %%% API
@@ -42,34 +38,14 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link() ->
+-spec(start_link(Worker :: #worker{}) ->
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
-start_link() ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+start_link(Worker) when is_record(Worker, worker) ->
+  gen_server:start_link(?MODULE, [Worker], []).
 
-%% connect to all nodes
-connect()->
-  gen_server:call(?SERVER, connect, infinity).
 
-%% send request to all known nodes
-poll(Request) ->
-  gen_server:call(?SERVER, {poll, Request}, infinity).
-
-%% send request to Node
-poll(Node, Request) when is_atom(Node) ->
-  gen_server:call(?SERVER, {poll, Node, Request});
-
-%% send request to Node
-poll(Nodes, Request) when is_list(Nodes) ->
-  gen_server:call(?SERVER, {poll, Nodes, Request}).
-
-%% send async notification to all known nodes
-notify(Message) ->
-  gen_server:call(?SERVER, {notify, Message}, infinity).
-
-%% send async notification to node
-notify(Node, Message) ->
-  gen_server:call(?SERVER, {notify, Node, Message}).
+get_name(WorkerRef) when is_pid(WorkerRef) ->
+  gen_server:call(WorkerRef, get_name).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -89,30 +65,9 @@ notify(Node, Message) ->
 -spec(init(Args :: term()) ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([]) ->
-  Port = config:get("inet.port", 9100, integer),
-  application:set_env(kernel, inet_dist_listen_min, Port),
-
-  Node = list_to_atom(config:get("cluster.name", "atlasd") ++ "@" ++ config:get("inet.host", "127.0.0.1")),
-  {ok, _} = net_kernel:start([Node, longnames]),
-
-  Cookie = case config:get("cluster.cookie") of
-    undefined ->
-      ?THROW_ERROR(?ERROR_COOKIE);
-    X -> list_to_atom(X)
-  end,
-
-  erlang:set_cookie(Node, Cookie),
-
-  Nodes = lists:map(fun(El) ->
-    NodeName = config:get("cluster.name", "atlasd"),
-    list_to_atom(NodeName ++ "@" ++ El)
-  end, config:get("cluster.hosts")),
-  net_kernel:allow(Nodes),
-
-  net_kernel:monitor_nodes(true),
-
-  {ok, #state{node = Node, nodes = Nodes, known = [Node]}}.
+init([Worker]) when is_record(Worker, worker) ->
+  ?DBG("Worker started ~p", [Worker]),
+  {ok, #state{config = Worker}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -130,38 +85,12 @@ init([]) ->
   {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
   {stop, Reason :: term(), NewState :: #state{}}).
 
-%% connect to all nodes
-handle_call(connect, _From, State) ->
-  [net_kernel:connect_node(Node) || Node <- State#state.nodes],
-  ok = global:sync(),
-  {reply, ok, State};
+
+handle_call(get_name, _From, State) ->
+  {reply, (State#state.config)#worker.name, State};
 
 
-%% send sync request to all known nodes
-handle_call({poll, Message}, _From, State) ->
-  {Replies, BadNodes} = gen_server:multi_call(State#state.known, atlasd, Message),
-  {reply, Replies, State#state{bad = BadNodes}};
-
-%% send sync request to node
-handle_call({poll, Node, Message}, _From, State) when is_atom(Node) ->
-  {reply, gen_server:call({atlasd, Node}, Message), State};
-
-%% send sync request to list of nodes
-handle_call({poll, Nodes, Message}, _From, State) when is_list(Nodes) ->
-  {Replies, BadNodes} = gen_server:multi_call(Nodes, atlasd, Message),
-  {reply, Replies, State#state{bad = BadNodes}};
-
-%% send async notification to all known nodes
-handle_call({notify, Message}, _From, State) ->
-  {reply, gen_server:abcast(State#state.known, atlasd, Message), State};
-
-%% send async notification to node
-handle_call({notify, Node, Message}, _From, State) ->
-  {reply, gen_server:cast({atlasd, Node}, Message), State};
-
-%%
-handle_call(Request, _From, State) ->
-  ?DBG("Missed call request ~p", [Request]),
+handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
 %%--------------------------------------------------------------------
@@ -175,8 +104,7 @@ handle_call(Request, _From, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
-handle_cast(Request, State) ->
-  ?DBG("Missed cast request ~p", [Request]),
+handle_cast(_Request, State) ->
   {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -193,28 +121,7 @@ handle_cast(Request, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
-
-handle_info({nodeup, Node}, State) ->
-  Known = case lists:member(Node, State#state.known) of
-            false ->
-              ?DBG("Found new node ~p~n", [Node]),
-              reg:broadcast(node, self(), {node, up, Node}),
-              [Node | State#state.known];
-
-            _ -> State#state.known
-          end,
-
-  {noreply, State#state{known = Known}};
-
-handle_info({nodedown, Node}, State) ->
-  ?DBG("Node down ~p~n", [Node]),
-  reg:broadcast(node, self(), {node, down, Node}),
-
-  {noreply, State#state{known = lists:delete(Node, State#state.known)}};
-
-
-handle_info(Info, State) ->
-  ?DBG("NET INFO ~p~n", [Info]),
+handle_info(_Info, State) ->
   {noreply, State}.
 
 %%--------------------------------------------------------------------

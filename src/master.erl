@@ -13,7 +13,10 @@
 -include_lib("atlasd.hrl").
 
 %% API
--export([start_link/0]).
+-export([
+  start_link/0,
+  elected/0
+]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -25,7 +28,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {role, master, master_node}).
+-record(state, {role, master, master_node, worker_nodes, workers}).
 
 %%%===================================================================
 %%% API
@@ -41,6 +44,11 @@
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+
+elected() ->
+  gen_server:cast(?SERVER, elected).
+
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -103,6 +111,12 @@ handle_call(_Request, _From, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
+
+%% i am a master ^_^
+handle_cast(elected, State) ->
+  {noreply, cluster_handshake(State)};
+
+%%
 handle_cast(_Request, State) ->
   {noreply, State}.
 
@@ -138,9 +152,19 @@ handle_info({_From, {node, down, Node}}, State) when State#state.role == slave,
 
 handle_info({_From, {node, up, Node}}, State) when State#state.role == master ->
   ?DBG("New node has connected ~p. Send master notification", [Node]),
-  cluster:notify(Node, {master, self()}),
-  {noreply, State};
+  {noreply, node_handshake(Node, State)};
 
+
+handle_info({_From, {node, down, Node}}, State) when State#state.role == master ->
+  case lists:member(Node, State#state.worker_nodes) of
+    true ->
+      WorkerNodes = lists:delete(Node, State#state.worker_nodes),
+      ?DBG("Worker node ~p has down. WorkerNodes is ~p", [Node, WorkerNodes]),
+      {noreply, State#state{worker_nodes = WorkerNodes}};
+
+    _ ->
+      {noreply, State}
+  end;
 
 handle_info(Info, State) ->
   ?DBG("MASTER RECIEVE ~p", [Info]),
@@ -184,8 +208,7 @@ try_become_master(State) ->
   case global:register_name(?MODULE, self()) of
     yes ->
       ?DBG("Elected as master ~p [~p]", [node(), self()]),
-      %% send notification to all
-      cluster:notify({master, self()}),
+      elected(),
       State#state{role = master, master = self()};
 
     no  ->
@@ -198,4 +221,45 @@ whereis_master() ->
   case global:whereis_name(?MODULE) of
     undefined -> undefined;
     Pid -> {Pid, node(Pid)}
+  end.
+
+
+cluster_handshake(State) ->
+  ?DBG("Start handshake with nodes", []),
+  %% send notification to all
+  cluster:notify({master, self()}),
+  %% get info about all nodes
+  WorkerNodes = lists:filtermap(fun({Node, IsWorker}) ->
+      case IsWorker of
+        true -> {true, Node};
+        _    -> false
+      end
+  end, cluster:poll(is_worker)),
+
+  ?DBG("WorkerNodes ~p", [WorkerNodes]),
+
+  %% request list of runing workers
+  RuningWorkers = cluster:poll(WorkerNodes, get_workers),
+  ?DBG("RuningWorkers ~p", [RuningWorkers]),
+
+  State#state{worker_nodes = WorkerNodes}.
+
+
+node_handshake(Node, State) ->
+  ?DBG("Start handshake with node ~p", [Node]),
+  cluster:notify(Node, {master, self()}),
+
+  case cluster:poll(Node, is_worker) of
+    true ->
+      WorkerNodes = State#state.worker_nodes ++ [Node],
+      ?DBG("Node ~p is worker. WorkerNodes now are ~p", [Node, WorkerNodes]),
+
+      RuningWorkers = cluster:poll(Node, get_workers),
+      ?DBG("RuningWorkers ~p", [RuningWorkers]),
+
+      State#state{worker_nodes = WorkerNodes};
+
+    _    ->
+      ?DBG("Node ~p is not worker. Ignore it", [Node]),
+      State
   end.
