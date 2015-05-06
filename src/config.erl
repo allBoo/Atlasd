@@ -13,7 +13,7 @@
 -include_lib("atlasd.hrl").
 
 %% API
--export([start_link/0, get/1, get/2, get/3]).
+-export([start_link/0, get/1, get/2, get/3, workers/0]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -81,6 +81,10 @@ get(Key, Default, boolean) ->
     I when is_integer(I) -> I =/= 0;
     _ -> Default
   end.
+
+
+workers() ->
+  parse_workers(config:get("workers")).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -235,3 +239,102 @@ get_key_value([Key | Tokens], Config) when is_list(Tokens) ->
     _ ->
       undefined
   end.
+
+
+%% workers config parser
+
+parse_workers([]) ->
+  [];
+parse_workers(WorkersListCfg) ->
+  [parse_worker(WorkerCfg) || WorkerCfg <- WorkersListCfg].
+
+parse_worker({WorkerName, WorkerCfg}) ->
+  parse_worker_config(#worker{name = list_to_atom(WorkerName)}, WorkerCfg).
+
+parse_worker_config(Worker, []) ->
+  Worker;
+
+parse_worker_config(Worker, [{"command", Value} | WorkerCfg]) ->
+  parse_worker_config(Worker#worker{command = Value}, WorkerCfg);
+
+parse_worker_config(Worker, [{"priority", Value} | WorkerCfg]) when is_integer(Value) ->
+  parse_worker_config(Worker#worker{priority = Value}, WorkerCfg);
+parse_worker_config(Worker, [{"priority", Value} | WorkerCfg]) when is_list(Value) ->
+  parse_worker_config(Worker#worker{priority = list_to_integer(Value)}, WorkerCfg);
+
+parse_worker_config(Worker, [{"nodes", Value} | WorkerCfg]) when Value == any; Value == "any" ->
+  parse_worker_config(Worker#worker{nodes = any}, WorkerCfg);
+parse_worker_config(Worker, [{"nodes", Value} | WorkerCfg]) when is_list(Value) ->
+  ?DBG("NODES ~p", [Value]),
+  case io_lib:printable_list(Value) of
+    true -> parse_worker_config(Worker#worker{nodes = [Value]}, WorkerCfg);
+    _    -> parse_worker_config(Worker#worker{nodes = Value}, WorkerCfg)
+  end;
+
+parse_worker_config(Worker, [{"restart", Value} | WorkerCfg]) when Value == "disallow";
+                                                                   Value == "simple";
+                                                                   Value == "prestart" ->
+  parse_worker_config(Worker#worker{restart = list_to_atom(Value)}, WorkerCfg);
+parse_worker_config(Worker, [{"restart", Value} | WorkerCfg]) when Value == disallow;
+                                                                   Value == simple;
+                                                                   Value == prestart ->
+  parse_worker_config(Worker#worker{restart = Value}, WorkerCfg);
+
+parse_worker_config(Worker, [{"max_mem", infinity} | WorkerCfg]) ->
+  parse_worker_config(Worker#worker{max_mem = infinity}, WorkerCfg);
+parse_worker_config(Worker, [{"max_mem", Value} | WorkerCfg]) when is_integer(Value) ->
+  parse_worker_config(Worker#worker{max_mem = {b, Value}}, WorkerCfg);
+parse_worker_config(Worker, [{"max_mem", Value} | WorkerCfg]) when is_list(Value) ->
+  case string:to_integer(Value) of
+    {Kb, "K"} -> parse_worker_config(Worker#worker{max_mem = {k, Kb}}, WorkerCfg);
+    {Mb, "M"} -> parse_worker_config(Worker#worker{max_mem = {m, Mb}}, WorkerCfg);
+    {Gb, "G"} -> parse_worker_config(Worker#worker{max_mem = {g, Gb}}, WorkerCfg);
+    _ ->
+      ?LOG("Unknown worker max_mem config value ~p", [Value]),
+      parse_worker_config(Worker, WorkerCfg)
+  end;
+
+parse_worker_config(Worker, [{"procs", Value} | WorkerCfg]) when is_list(Value) ->
+  parse_worker_config(Worker#worker{procs = parse_procs_config(#worker_procs{}, Value)}, WorkerCfg);
+
+parse_worker_config(Worker, [{"monitor", Value} | WorkerCfg]) when is_list(Value) ->
+  parse_worker_config(Worker#worker{monitor = parse_monitor_configs(Value)}, WorkerCfg);
+
+parse_worker_config(Worker, [Unknown | WorkerCfg]) ->
+  ?LOG("Unknown worker config value ~p", [Unknown]),
+  parse_worker_config(Worker, WorkerCfg).
+
+
+%% worker procs config parser
+parse_procs_config(Procs, []) ->
+  Procs;
+
+parse_procs_config(Procs, [{"min", Value} | ProcsConfig]) when is_integer(Value) ->
+  parse_procs_config(Procs#worker_procs{min = Value}, ProcsConfig);
+parse_procs_config(Procs, [{"max", Value} | ProcsConfig]) when is_integer(Value) ->
+  parse_procs_config(Procs#worker_procs{max = Value}, ProcsConfig);
+parse_procs_config(Procs, [{"allways", Value} | ProcsConfig]) when is_integer(Value) ->
+  parse_procs_config(Procs#worker_procs{allways = Value}, ProcsConfig);
+parse_procs_config(Procs, [{"max_per_node", Value} | ProcsConfig]) when is_integer(Value) ->
+  parse_procs_config(Procs#worker_procs{max_per_node = Value}, ProcsConfig);
+parse_procs_config(Procs, [{"each_node", Value} | ProcsConfig]) when is_integer(Value) ->
+  parse_procs_config(Procs#worker_procs{each_node = Value}, ProcsConfig);
+
+parse_procs_config(Procs, [Unknown | ProcsConfig]) ->
+  ?LOG("Unknown worker procs config value ~p", [Unknown]),
+  parse_procs_config(Procs, ProcsConfig).
+
+%% worker monitor config parser
+
+parse_monitor_configs([]) ->
+  [];
+parse_monitor_configs(MonitorsConfigs) ->
+  [parse_monitor_config(#worker_monitor{name = MonitorName}, MonitorConfig) || {MonitorName, MonitorConfig} <- MonitorsConfigs].
+
+%% @todo use monitor module to parse config
+parse_monitor_config(Monitor, MonitorConfig) ->
+  Monitor#worker_monitor{params = MonitorConfig}.
+
+%parse_monitor_config(Monitor, [Unknown | MonitorConfig]) ->
+%  ?LOG("Unknown worker monitor config value ~p", [Unknown]),
+%  parse_monitor_config(Monitor, MonitorConfig).

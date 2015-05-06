@@ -28,7 +28,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {role, master, master_node, worker_nodes, workers}).
+-record(state, {role, master, master_node, worker_config, worker_nodes, workers}).
 
 %%%===================================================================
 %%% API
@@ -72,14 +72,15 @@ init([]) ->
   reg:bind(node),
   ok = global:sync(),
 
+  WorkerConfig = config:workers(),
   case whereis_master() of
     undefined ->
       ?DBG("No master found. Wait for 15 secs to become as master", []),
-      {ok, #state{role = undefined, master = undefined, master_node = undefined}, 15000};
+      {ok, #state{role = undefined, master = undefined, master_node = undefined, worker_config = WorkerConfig}, 15000};
 
     {Master, MasterNode} ->
       ?DBG("Detected master ~p", [Master]),
-      {ok, #state{role = slave, master = Master, master_node = MasterNode}}
+      {ok, #state{role = slave, master = Master, master_node = MasterNode, worker_config = WorkerConfig}}
   end.
 
 %%--------------------------------------------------------------------
