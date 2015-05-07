@@ -44,7 +44,7 @@
 -spec(start_link(SupPid :: pid(), WorkerPid :: pid(), Worker :: #worker{}) ->
   {ok, pid()} | ignore | {error, Reason :: term()}).
 start_link(SupPid, WorkerPid, Worker) when is_pid(SupPid), is_pid(WorkerPid), is_record(Worker, worker) ->
-  gen_fsm:start_link({local, ?SERVER}, ?MODULE, [SupPid, WorkerPid, Worker], []).
+  gen_fsm:start_link(?MODULE, [SupPid, WorkerPid, Worker], []).
 
 %%%===================================================================
 %%% gen_fsm callbacks

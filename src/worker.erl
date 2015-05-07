@@ -67,6 +67,7 @@ get_name(WorkerRef) when is_pid(WorkerRef) ->
   {stop, Reason :: term()} | ignore).
 init([Worker]) when is_record(Worker, worker) ->
   ?DBG("Worker started ~p", [Worker]),
+  atlasd:worker_started({self(), Worker#worker.name}),
   {ok, #state{config = Worker}}.
 
 %%--------------------------------------------------------------------

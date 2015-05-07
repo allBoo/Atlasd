@@ -13,7 +13,14 @@
 -include_lib("atlasd.hrl").
 
 %% API
--export([start_link/0, get/1, get/2, get/3, workers/0]).
+-export([
+  start_link/0,
+  get/1,
+  get/2,
+  get/3,
+  workers/0,
+  worker/1
+]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -85,6 +92,11 @@ get(Key, Default, boolean) ->
 
 workers() ->
   parse_workers(config:get("workers")).
+
+worker(WorkerName) when is_list(WorkerName) ->
+  worker(list_to_atom(WorkerName));
+worker(WorkerName) when is_atom(WorkerName) ->
+  lists:keyfind(WorkerName, 2, workers()).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -265,7 +277,6 @@ parse_worker_config(Worker, [{"priority", Value} | WorkerCfg]) when is_list(Valu
 parse_worker_config(Worker, [{"nodes", Value} | WorkerCfg]) when Value == any; Value == "any" ->
   parse_worker_config(Worker#worker{nodes = any}, WorkerCfg);
 parse_worker_config(Worker, [{"nodes", Value} | WorkerCfg]) when is_list(Value) ->
-  ?DBG("NODES ~p", [Value]),
   case io_lib:printable_list(Value) of
     true -> parse_worker_config(Worker#worker{nodes = [Value]}, WorkerCfg);
     _    -> parse_worker_config(Worker#worker{nodes = Value}, WorkerCfg)

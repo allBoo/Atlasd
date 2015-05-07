@@ -28,7 +28,14 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {role, master, master_node, worker_config, worker_nodes, workers}).
+-record(state, {
+  role          :: master | slave | undefined,  %% current node role
+  master        :: pid() | undefined,           %% master pid
+  master_node   :: node() | undefined,          %% master node
+  worker_config :: [#worker{}],                 %% base workers config
+  worker_nodes  :: [node()],                    %% list of worker nodes
+  workers       :: [{node(), pid(), Name :: atom()}]    %% current runing workers
+}).
 
 %%%===================================================================
 %%% API
@@ -117,6 +124,23 @@ handle_call(_Request, _From, State) ->
 handle_cast(elected, State) ->
   {noreply, cluster_handshake(State)};
 
+
+%% worker started on any node
+handle_cast({worker_started, {Node, Pid, Name}}, State) when State#state.role == master,
+                                                             is_atom(Node), is_pid(Pid), is_atom(Name) ->
+  RuningWorkers = State#state.workers ++ [{Node, Pid, Name}],
+  ?DBG("New worker ~p[~p] started at node ~p", [Name, Pid, Node]),
+  ?DBG("RuningWorkers ~p", [RuningWorkers]),
+  {noreply, State#state{workers = RuningWorkers}};
+
+%% worker stoped on any node
+handle_cast({worker_stoped, {Node, Pid, Name}}, State) when State#state.role == master,
+                                                            is_atom(Node), is_pid(Pid), is_atom(Name) ->
+  RuningWorkers = State#state.workers -- [{Node, Pid, Name}],
+  ?DBG("Worker ~p[~p] stoped at node ~p", [Name, Pid, Node]),
+  ?DBG("RuningWorkers ~p", [RuningWorkers]),
+  {noreply, State#state{workers = RuningWorkers}};
+
 %%
 handle_cast(_Request, State) ->
   {noreply, State}.
@@ -160,8 +184,12 @@ handle_info({_From, {node, down, Node}}, State) when State#state.role == master 
   case lists:member(Node, State#state.worker_nodes) of
     true ->
       WorkerNodes = lists:delete(Node, State#state.worker_nodes),
-      ?DBG("Worker node ~p has down. WorkerNodes is ~p", [Node, WorkerNodes]),
-      {noreply, State#state{worker_nodes = WorkerNodes}};
+      RuningWorkers = lists:filter(fun({WorkerNode, _, _}) ->
+        WorkerNode =/= Node
+      end, State#state.workers),
+      ?DBG("Worker node ~p has down. WorkerNodes are ~p and workers are ~p", [Node, WorkerNodes, RuningWorkers]),
+      
+      {noreply, State#state{worker_nodes = WorkerNodes, workers = RuningWorkers}};
 
     _ ->
       {noreply, State}
@@ -231,19 +259,21 @@ cluster_handshake(State) ->
   cluster:notify({master, self()}),
   %% get info about all nodes
   WorkerNodes = lists:filtermap(fun({Node, IsWorker}) ->
-      case IsWorker of
-        true -> {true, Node};
-        _    -> false
-      end
+      {IsWorker, Node}
   end, cluster:poll(is_worker)),
 
   ?DBG("WorkerNodes ~p", [WorkerNodes]),
 
   %% request list of runing workers
-  RuningWorkers = cluster:poll(WorkerNodes, get_workers),
+  RuningWorkers = lists:flatten(
+    [
+      [{Node, Pid, Name}
+        || {Pid, Name} <- Workers]
+          || {Node, Workers} <- cluster:poll(WorkerNodes, get_workers)
+    ]),
   ?DBG("RuningWorkers ~p", [RuningWorkers]),
 
-  State#state{worker_nodes = WorkerNodes}.
+  State#state{worker_nodes = WorkerNodes, workers = RuningWorkers}.
 
 
 node_handshake(Node, State) ->
@@ -255,10 +285,11 @@ node_handshake(Node, State) ->
       WorkerNodes = State#state.worker_nodes ++ [Node],
       ?DBG("Node ~p is worker. WorkerNodes now are ~p", [Node, WorkerNodes]),
 
-      RuningWorkers = cluster:poll(Node, get_workers),
+      RuningWorkers = State#state.workers ++
+        [{Node, Pid, Name} || {Pid, Name} <- cluster:poll(Node, get_workers)],
       ?DBG("RuningWorkers ~p", [RuningWorkers]),
 
-      State#state{worker_nodes = WorkerNodes};
+      State#state{worker_nodes = WorkerNodes, workers = RuningWorkers};
 
     _    ->
       ?DBG("Node ~p is not worker. Ignore it", [Node]),

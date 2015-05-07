@@ -15,7 +15,9 @@ start(_StartType, _StartArgs) ->
 
   %% start worker sup
   case config:get("node.worker") of
-    true -> supervisor:start_child(atlasd_sup, ?CHILD_SUP(workers_sup));
+    true ->
+      supervisor:start_child(atlasd_sup, ?CHILD(workers_monitor)),
+      supervisor:start_child(atlasd_sup, ?CHILD_SUP(workers_sup));
     _ -> ok
   end,
 

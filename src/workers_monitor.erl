@@ -2,24 +2,18 @@
 %%% @author alboo
 %%% @copyright (C) 2015, <COMPANY>
 %%% @doc
-%%%   this is a main API server
+%%%
 %%% @end
-%%% Created : 29. апр 2015 0:56
+%%% Created : 08. май 2015 0:30
 %%%-------------------------------------------------------------------
--module(atlasd).
+-module(workers_monitor).
 -author("alboo").
 
 -behaviour(gen_server).
 -include_lib("atlasd.hrl").
 
 %% API
--export([
-  start_link/0,
-  is_worker/0,
-  worker_started/1,
-  worker_stoped/1,
-  start_worker/1
-]).
+-export([start_link/0, monitor/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -31,7 +25,9 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {master}).
+-record(state, {
+  monitors :: [{MonitorRef :: reference(), Worker :: {Pid :: pid(), Name :: atom()}}]
+}).
 
 %%%===================================================================
 %%% API
@@ -49,19 +45,8 @@ start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 
-is_worker() ->
-  config:get("node.worker", false, boolean).
-
-%% start worker
-start_worker(Worker) ->
-  gen_server:cast(?SERVER, {start_worker, Worker}).
-
-%% workers must use this function to inform master about itself
-worker_started({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
-  gen_server:cast(?SERVER, {worker_started, Worker}).
-
-worker_stoped({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
-  gen_server:cast(?SERVER, {worker_stoped, Worker}).
+monitor({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
+  gen_server:cast(?SERVER, {monitor, Worker}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -82,7 +67,7 @@ worker_stoped({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([]) ->
-  {ok, #state{}}.
+  {ok, #state{monitors = []}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -99,21 +84,7 @@ init([]) ->
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
   {stop, Reason :: term(), NewState :: #state{}}).
-
-
-handle_call(is_worker, _From, State) ->
-  {reply, is_worker(), State};
-
-
-handle_call(get_workers, _From, State) ->
-  case is_worker() of
-    true -> {reply, workers_sup:get_workers(), State};
-    _ -> {reply, ignore, State}
-  end;
-
-
-handle_call(Request, From, State) ->
-  ?DBG("Get request ~p from ~p", [Request, From]),
+handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
 %%--------------------------------------------------------------------
@@ -128,43 +99,14 @@ handle_call(Request, From, State) ->
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
 
-%% recieve master pid
-handle_cast({master, Pid}, State) ->
-  ?DBG("Recieve master pid ~p", [Pid]),
-  {noreply, State#state{master = Pid}};
+%% start to monitor worker
+handle_cast({monitor, {Pid, _Name} = Worker}, State) ->
+  Monitor = erlang:monitor(process, Pid),
+  Monitors = State#state.monitors ++ [{Monitor, Worker}],
+  {noreply, State#state{monitors = Monitors}};
 
 
-%% start worker
-handle_cast({start_worker, Worker}, State) ->
-  ?DBG("Try to start worker ~p", [Worker]),
-  do_start_worker(Worker),
-  {noreply, State};
-
-
-%% inform master about workers
-handle_cast({worker_started, {Pid, Name}}, State) when is_pid(State#state.master),
-                                                       is_pid(Pid), is_atom(Name) ->
-  %% set internal monitor to detect worker crash
-  workers_monitor:monitor({Pid, Name}),
-  gen_server:cast(State#state.master, {worker_started, {node(), Pid, Name}}),
-  {noreply, State};
-
-%% inform master about workers
-handle_cast({worker_stoped, {Pid, Name}}, State) when is_pid(State#state.master),
-                                                      is_pid(Pid), is_atom(Name) ->
-  gen_server:cast(State#state.master, {worker_stoped, {node(), Pid, Name}}),
-  {noreply, State};
-
-%% inform master about workers
-handle_cast({worker_crashed, Pid}, State) when is_pid(State#state.master),
-                                               is_pid(Pid) ->
-  gen_server:cast(State#state.master, {worker_crashed, {node(), Pid}}),
-  {noreply, State};
-
-
-%% undefined request
-handle_cast(Request, State) ->
-  ?DBG("Get notice ~p", [Request]),
+handle_cast(_Request, State) ->
   {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -181,6 +123,21 @@ handle_cast(Request, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
+
+%% worker stoped
+handle_info({'DOWN', MonitorRef, _Type, _WorkerPid, _Info}, State) ->
+  case lists:keyfind(MonitorRef, 1, State#state.monitors) of
+    {MonitorRef, Worker} ->
+      erlang:demonitor(MonitorRef),
+      atlasd:worker_stoped(Worker),
+      Monitors = State#state.monitors -- [{MonitorRef, Worker}],
+
+      {noreply, State#state{monitors = Monitors}};
+
+    _ -> {noreply, State}
+  end;
+
+
 handle_info(_Info, State) ->
   {noreply, State}.
 
@@ -217,11 +174,3 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-do_start_worker(false) -> false;
-do_start_worker(Worker) when is_atom(Worker); is_list(Worker) ->
-  do_start_worker(config:worker(Worker));
-do_start_worker(Worker) when is_record(Worker, worker) ->
-  workers_sup:start_worker(Worker);
-do_start_worker(_) ->
-  false.
