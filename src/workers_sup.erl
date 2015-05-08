@@ -16,6 +16,7 @@
 -export([
   start_link/0,
   start_worker/1,
+  stop_worker/1,
   get_workers/0
 ]).
 
@@ -43,6 +44,24 @@ start_link() ->
 %%
 start_worker(Worker) when is_record(Worker, worker) ->
   supervisor:start_child(?SERVER, [Worker]).
+
+%%
+stop_worker(WorkerPid) when is_pid(WorkerPid) ->
+  %% search supervisor for current worker pid
+  lists:takewhile(fun({_, WorkerSup, _, _}) ->
+    case worker_sup:get_worker(WorkerSup) of
+      WorkerPid ->
+        % kill
+        supervisor:terminate_child(?SERVER, WorkerSup),
+        false;
+
+      _ -> true
+    end
+  end, supervisor:which_children(?SERVER)),
+  ok;
+
+stop_worker(_) ->
+  false.
 
 %%
 get_workers() ->

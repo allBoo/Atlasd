@@ -18,7 +18,8 @@
   is_worker/0,
   worker_started/1,
   worker_stoped/1,
-  start_worker/1
+  start_worker/1,
+  stop_worker/1
 ]).
 
 %% gen_server callbacks
@@ -55,6 +56,10 @@ is_worker() ->
 %% start worker
 start_worker(Worker) ->
   gen_server:cast(?SERVER, {start_worker, Worker}).
+
+%% stop worker
+stop_worker(WorkerPid) when is_pid(WorkerPid) ->
+  gen_server:cast(?SERVER, {stop_worker, WorkerPid}).
 
 %% workers must use this function to inform master about itself
 worker_started({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
@@ -138,6 +143,12 @@ handle_cast({master, Pid}, State) ->
 handle_cast({start_worker, Worker}, State) ->
   ?DBG("Try to start worker ~p", [Worker]),
   do_start_worker(Worker),
+  {noreply, State};
+
+%% stop worker
+handle_cast({stop_worker, WorkerPid}, State) when is_pid(WorkerPid) ->
+  ?DBG("Try to gracefully stop worker ~p", [WorkerPid]),
+  do_stop_worker(WorkerPid),
   {noreply, State};
 
 
@@ -224,4 +235,11 @@ do_start_worker(Worker) when is_atom(Worker); is_list(Worker) ->
 do_start_worker(Worker) when is_record(Worker, worker) ->
   workers_sup:start_worker(Worker);
 do_start_worker(_) ->
+  false.
+
+
+do_stop_worker(WorkerPid) when is_pid(WorkerPid) ->
+  workers_sup:stop_worker(WorkerPid);
+
+do_stop_worker(_) ->
   false.

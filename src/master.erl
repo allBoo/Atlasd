@@ -15,7 +15,8 @@
 %% API
 -export([
   start_link/0,
-  elected/0
+  elected/0,
+  rebalance/0
 ]).
 
 %% gen_server callbacks
@@ -27,6 +28,7 @@
   code_change/3]).
 
 -define(SERVER, ?MODULE).
+-define(REBALANCE, 5000).
 
 -record(state, {
   role          :: master | slave | undefined,  %% current node role
@@ -55,6 +57,10 @@ start_link() ->
 
 elected() ->
   gen_server:cast(?SERVER, elected).
+
+
+rebalance() ->
+  gen_server:cast(?SERVER, rebalance).
 
 
 %%%===================================================================
@@ -90,6 +96,7 @@ init([]) ->
       {ok, #state{role = slave, master = Master, master_node = MasterNode, worker_config = WorkerConfig}}
   end.
 
+
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
@@ -108,6 +115,7 @@ init([]) ->
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
+
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
@@ -122,7 +130,7 @@ handle_call(_Request, _From, State) ->
 
 %% i am a master ^_^
 handle_cast(elected, State) ->
-  {noreply, cluster_handshake(State)};
+  {noreply, cluster_handshake(State), ?REBALANCE};
 
 
 %% worker started on any node
@@ -131,7 +139,7 @@ handle_cast({worker_started, {Node, Pid, Name}}, State) when State#state.role ==
   RuningWorkers = State#state.workers ++ [{Node, Pid, Name}],
   ?DBG("New worker ~p[~p] started at node ~p", [Name, Pid, Node]),
   ?DBG("RuningWorkers ~p", [RuningWorkers]),
-  {noreply, State#state{workers = RuningWorkers}};
+  {noreply, State#state{workers = RuningWorkers}, ?REBALANCE};
 
 %% worker stoped on any node
 handle_cast({worker_stoped, {Node, Pid, Name}}, State) when State#state.role == master,
@@ -139,7 +147,12 @@ handle_cast({worker_stoped, {Node, Pid, Name}}, State) when State#state.role == 
   RuningWorkers = State#state.workers -- [{Node, Pid, Name}],
   ?DBG("Worker ~p[~p] stoped at node ~p", [Name, Pid, Node]),
   ?DBG("RuningWorkers ~p", [RuningWorkers]),
-  {noreply, State#state{workers = RuningWorkers}};
+  {noreply, State#state{workers = RuningWorkers}, ?REBALANCE};
+
+
+%% REBALANCE cluster state
+handle_cast(rebalance, State) when State#state.role == master ->
+  {noreply, do_rebalance(State)};
 
 %%
 handle_cast(_Request, State) ->
@@ -162,8 +175,15 @@ handle_cast(_Request, State) ->
 
 %% not recieved messages within 15secs after start
 %% try to become as master
-handle_info(timeout, State) ->
+handle_info(timeout, State) when State#state.role == undefined ->
   {noreply, try_become_master(State)};
+
+
+%% rebalance required
+handle_info(timeout, State) when State#state.role == master ->
+  rebalance(),
+  {noreply, State};
+
 
 %% nodes state messages
 handle_info({_From, {node, _NodeStatus, _Node}}, State) when State#state.role == undefined ->
@@ -177,7 +197,7 @@ handle_info({_From, {node, down, Node}}, State) when State#state.role == slave,
 
 handle_info({_From, {node, up, Node}}, State) when State#state.role == master ->
   ?DBG("New node has connected ~p. Send master notification", [Node]),
-  {noreply, node_handshake(Node, State)};
+  {noreply, node_handshake(Node, State), ?REBALANCE};
 
 
 handle_info({_From, {node, down, Node}}, State) when State#state.role == master ->
@@ -189,7 +209,7 @@ handle_info({_From, {node, down, Node}}, State) when State#state.role == master 
       end, State#state.workers),
       ?DBG("Worker node ~p has down. WorkerNodes are ~p and workers are ~p", [Node, WorkerNodes, RuningWorkers]),
       
-      {noreply, State#state{worker_nodes = WorkerNodes, workers = RuningWorkers}};
+      {noreply, State#state{worker_nodes = WorkerNodes, workers = RuningWorkers}, ?REBALANCE};
 
     _ ->
       {noreply, State}
@@ -295,3 +315,95 @@ node_handshake(Node, State) ->
       ?DBG("Node ~p is not worker. Ignore it", [Node]),
       State
   end.
+
+
+%% rebalancing
+do_rebalance(State) ->
+  ?DBG("REBALANCE CLUSTER", []),
+  %% ensure all workers are runing
+  ensure_runing(State#state.worker_config, State#state.workers, State#state.worker_nodes),
+  State.
+
+ensure_runing([], _, _) ->
+  ok;
+
+%% staticaly runing workers
+ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when (WorkerCfg#worker.procs)#worker_procs.allways > 0 ->
+  RequiredInstances = (WorkerCfg#worker.procs)#worker_procs.allways,
+  Instances = get_worker_instances(WorkerCfg#worker.name, Workers),
+  if
+    length(Instances) == RequiredInstances -> ok;
+
+    length(Instances) > RequiredInstances ->
+      KillCount = length(Instances) - RequiredInstances,
+      ?DBG("Count instances of ~p id higher than ~p",
+        [WorkerCfg#worker.name, RequiredInstances]),
+      stop_workers(KillCount, WorkerCfg, Instances);
+
+    length(Instances) < RequiredInstances ->
+      NewCount = RequiredInstances - length(Instances),
+      ?DBG("Count instances of ~p id lower than ~p",
+        [WorkerCfg#worker.name, RequiredInstances]),
+      run_workers(NewCount, WorkerCfg, Instances, Nodes)
+  end,
+  ensure_runing(WorkersConfig, Workers, Nodes);
+
+%%
+ensure_runing([_WorkerCfg | WorkersConfig], Workers, Nodes) ->
+  ensure_runing(WorkersConfig, Workers, Nodes).
+
+
+%% run number of new workers
+run_workers(Count, WorkerCfg, _Instances, Nodes) ->
+  ClusterName = config:get("cluster.name", "atlasd", string),
+  RunAtNodes = case WorkerCfg#worker.nodes of
+                 any -> Nodes;
+
+                 %% filter accept nodes throung availiable nodes
+                 Accept when is_list(Accept) ->
+                   lists:filtermap(fun(El) ->
+                     AcceptNode = list_to_atom(ClusterName ++ "@" ++ El),
+                     case lists:member(AcceptNode, Nodes) of
+                       true -> {true, AcceptNode};
+                       _ -> false
+                     end
+                   end, Accept);
+
+                 _ -> []
+               end,
+
+  if
+    length(RunAtNodes) > 0 ->
+      ?DBG("Run ~p new workers ~p on ~p", [Count, WorkerCfg#worker.name, RunAtNodes]),
+      run_worker_at(WorkerCfg, Count, RunAtNodes);
+
+    true ->
+      ?LOG("Can not find proper nodes for worker ~p", [WorkerCfg#worker.name]),
+      error
+  end.
+
+
+run_worker_at(_, _, []) ->
+  error;
+
+run_worker_at(_, 0, _Nodes) ->
+  ok;
+
+run_worker_at(Worker, Count, Nodes) ->
+  NodeIndex = (Count rem length(Nodes)) + 1,
+  Node = lists:nth(NodeIndex, Nodes),
+  cluster:notify(Node, {start_worker, Worker}),
+  run_worker_at(Worker, Count - 1, Nodes).
+
+
+%% stop number of workers
+stop_workers(Count, WorkerCfg, Instances) ->
+  ?DBG("Stop ~p workers ~p on ~p", [Count, WorkerCfg#worker.name, Instances]),
+  ok.
+
+
+%% return list of worker instances
+get_worker_instances(WorkerName, WorkersList) ->
+  lists:filter(fun({_Node, _Pid, Name}) ->
+    Name == WorkerName
+  end, WorkersList).
