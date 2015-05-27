@@ -324,52 +324,109 @@ do_rebalance(State) ->
   ensure_runing(State#state.worker_config, State#state.workers, State#state.worker_nodes),
   State.
 
+
 ensure_runing([], _, _) ->
   ok;
 
-%% staticaly runing workers
-ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when (WorkerCfg#worker.procs)#worker_procs.allways > 0 ->
-  RequiredInstances = (WorkerCfg#worker.procs)#worker_procs.allways,
+ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) ->
+  ProcsConfig = WorkerCfg#worker.procs,
+
+  %% static instances count
+  [MinInstances, MaxInstances] = if
+                                   ProcsConfig#worker_procs.each_node =/= false ->
+                                     Max = if
+                                             is_integer(ProcsConfig#worker_procs.max)
+                                             and ProcsConfig#worker_procs.max > length(Nodes) ->
+                                               ProcsConfig#worker_procs.max;
+
+                                             true ->
+                                               length(Nodes)
+                                           end,
+                                     [length(Nodes), Max];
+
+                                   ProcsConfig#worker_procs.allways > 0 ->
+                                     [ProcsConfig#worker_procs.allways, ProcsConfig#worker_procs.allways];
+
+                                   true ->
+                                     [ProcsConfig#worker_procs.min, ProcsConfig#worker_procs.max]
+                                 end,
+
   Instances = get_worker_instances(WorkerCfg#worker.name, Workers),
+  InstancesCount = length(Instances),
   if
-    length(Instances) == RequiredInstances -> ok;
+    (InstancesCount >= MinInstances) and (InstancesCount =< MaxInstances) -> ok;
 
-    length(Instances) > RequiredInstances ->
-      KillCount = length(Instances) - RequiredInstances,
-      ?DBG("Count instances of ~p id higher than ~p",
-        [WorkerCfg#worker.name, RequiredInstances]),
-      stop_workers(KillCount, WorkerCfg, Instances);
-
-    length(Instances) < RequiredInstances ->
-      NewCount = RequiredInstances - length(Instances),
+    InstancesCount < MinInstances ->
+      NewCount = MinInstances - InstancesCount,
       ?DBG("Count instances of ~p id lower than ~p",
-        [WorkerCfg#worker.name, RequiredInstances]),
-      run_workers(NewCount, WorkerCfg, Instances, Nodes)
-  end,
-  ensure_runing(WorkersConfig, Workers, Nodes);
+        [WorkerCfg#worker.name, MinInstances]),
+      run_workers(NewCount, WorkerCfg, Instances, Nodes);
 
-%%
-ensure_runing([_WorkerCfg | WorkersConfig], Workers, Nodes) ->
+    InstancesCount > MaxInstances ->
+      KillCount = InstancesCount - MaxInstances,
+      ?DBG("Count instances of ~p id higher than ~p",
+        [WorkerCfg#worker.name, MaxInstances]),
+      stop_workers(KillCount, WorkerCfg, Instances)
+  end,
   ensure_runing(WorkersConfig, Workers, Nodes).
 
 
 %% run number of new workers
-run_workers(Count, WorkerCfg, _Instances, Nodes) ->
-  ClusterName = config:get("cluster.name", "atlasd", string),
-  RunAtNodes = case WorkerCfg#worker.nodes of
-                 any -> Nodes;
+run_workers(Count, WorkerCfg, Instances, Nodes) ->
+  ProcsConfig = WorkerCfg#worker.procs,
 
-                 %% filter accept nodes throung availiable nodes
-                 Accept when is_list(Accept) ->
-                   lists:filtermap(fun(El) ->
-                     AcceptNode = list_to_atom(ClusterName ++ "@" ++ El),
-                     case lists:member(AcceptNode, Nodes) of
-                       true -> {true, AcceptNode};
-                       _ -> false
-                     end
-                   end, Accept);
+  %% nodes filtering
+  AvailableNodes = case WorkerCfg#worker.nodes of
+                     any -> Nodes;
 
-                 _ -> []
+                     %% filter accept nodes throung availiable nodes
+                     Accept when is_list(Accept) ->
+                       lists:filtermap(fun(Node) ->
+                         [_, NodeHost] = string:tokens(atom_to_list(Node), "@"),
+                         case lists:member(NodeHost, Accept) of
+                           true -> {true, Node};
+                           _ -> false
+                         end
+                       end, Nodes);
+
+                     _ -> []
+                   end,
+
+  %% each_node filtering
+  FreeNodes = if
+                ProcsConfig#worker_procs.each_node =/= false ->
+                  %% search nodes where we are not running
+                  Running = [InstanceNode || {InstanceNode, _, _} <- Instances],
+                  NotRunning = lists:filter(fun(Node) ->
+                    not lists:member(Node, Running)
+                  end, AvailableNodes),
+                  %% if we are runing on all nodes than return them all
+                  case NotRunning of
+                    [] -> AvailableNodes;
+                    N  -> N
+                  end;
+
+                true -> AvailableNodes
+              end,
+
+  %% max_per_node filtering
+  RunAtNodes = if
+                 ProcsConfig#worker_procs.max_per_node =/= infinity ->
+                   %% calculate count of instances for each node
+                   %% and filter those having more than max_per_node
+                   lists:filter(fun(Node) ->
+                     RunningCount = lists:foldl(fun({InstanceNode, _, _}, Acc) ->
+                                                   case InstanceNode == Node of
+                                                     true -> Acc + 1;
+                                                     _ -> Acc
+                                                   end
+                                                 end, 0, Instances),
+
+                     RunningCount < ProcsConfig#worker_procs.max_per_node
+                   end, FreeNodes);
+
+
+                 true -> FreeNodes
                end,
 
   if
@@ -398,8 +455,44 @@ run_worker_at(Worker, Count, Nodes) ->
 
 %% stop number of workers
 stop_workers(Count, WorkerCfg, Instances) ->
-  ?DBG("Stop ~p workers ~p on ~p", [Count, WorkerCfg#worker.name, Instances]),
-  ok.
+  StopWorkers = case WorkerCfg#worker.nodes of
+                  Accept when is_list(Accept), length(Accept) > 0 ->
+                    %% search improper nodes
+                    N = lists:filtermap(fun({InstanceNode, _, _} = Instance) ->
+                          [_, InstanceHost] = string:tokens(atom_to_list(InstanceNode), "@"),
+                          case lists:member(InstanceHost, WorkerCfg#worker.nodes) of
+                            false -> {true, Instance};
+                            _ -> false
+                          end
+                        end, Instances),
+                    case N of
+                      [] -> Instances;
+                      L  -> L
+                    end;
+
+                  _ -> Instances
+                end,
+
+  if
+    length(StopWorkers) > 0 ->
+      ?DBG("Stop ~p workers ~p on ~p", [Count, WorkerCfg#worker.name, StopWorkers]),
+      stop_worker_at(WorkerCfg, Count, StopWorkers);
+
+    true ->
+      ?LOG("Can't find proper nodes to stop worker ~p", [WorkerCfg#worker.name]),
+      error
+  end.
+
+
+stop_worker_at(_, _, []) ->
+  ok;
+
+stop_worker_at(_, 0, _Instances) ->
+  ok;
+
+stop_worker_at(Worker, Count, [{Node, WorkerPid, _} | Instances]) ->
+  cluster:notify(Node, {stop_worker, WorkerPid}),
+  stop_worker_at(Worker, Count - 1, Instances).
 
 
 %% return list of worker instances
