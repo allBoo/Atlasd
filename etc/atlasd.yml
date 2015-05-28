@@ -57,7 +57,7 @@ monitor:
 ############################## Workers ###############################
 workers:
   task-listen-low:
-    command: "php /apps/ds/artisan tinker"
+    command: "/apps/atlasd/priv/command1.sh"
     priority: 100
     nodes: "192.168.2.1"
     restart: disallow
@@ -68,23 +68,23 @@ workers:
         exchange: parsley
         queue: "ds.conveyer.task.low"
 
-  task-listen-middle:
-    command: "php /apps/ds/artisan tinker"
-    priority: 100
-    nodes: any
-    restart: simple
-    max_mem: "100M"
-    procs:
-      min: 1
-      max: 15
-      max_per_node: 1
-    monitor:
-      rabbimq:
-        exchange: parsley
-        queue: "ds.conveyer.task.middle"
+#  task-listen-middle:
+#    command: "/apps/atlasd/priv/command2.sh"
+#    priority: 100
+#    nodes: any
+#    restart: simple
+#    max_mem: "100M"
+#    procs:
+#      min: 1
+#      max: 15
+#      max_per_node: 1
+#    monitor:
+#      rabbimq:
+#        exchange: parsley
+#        queue: "ds.conveyer.task.middle"
 
   task-listen-high:
-    command: "php /apps/ds/artisan tinker"
+    command: "/apps/atlasd/priv/command3.sh"
     priority: 1
     nodes: ["192.168.2.1", "192.168.2.5"]
     restart: prestart

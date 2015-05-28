@@ -26,7 +26,13 @@
   terminate/2,
   code_change/3]).
 
--record(state, {config}).
+-record(state, {
+  config,
+  port = undefined,
+  pid  = undefined,
+  last_line = <<>>,
+  incomplete = <<>>
+}).
 
 %%%===================================================================
 %%% API
@@ -66,9 +72,16 @@ get_name(WorkerRef) when is_pid(WorkerRef) ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([Worker]) when is_record(Worker, worker) ->
-  ?DBG("Worker started ~p", [Worker]),
-  atlasd:worker_started({self(), Worker#worker.name}),
-  {ok, #state{config = Worker}}.
+  process_flag(trap_exit, true),
+
+  case start_worker(#state{config = Worker}) of
+    {ok, State} ->
+      atlasd:worker_started({self(), Worker#worker.name}),
+      {ok, State};
+
+    {error, Error, _State} ->
+      {stop, Error}
+  end.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -122,7 +135,51 @@ handle_cast(_Request, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
-handle_info(_Info, State) ->
+
+handle_info({Port, {data, {eol, Data}}}, State) when Port == State#state.port ->
+  CurrentLog = State#state.incomplete,
+  CompleteLog = <<CurrentLog/binary, Data/binary>>,
+  %?DBG("complete stdout ~p", [CompleteLog]),
+  {noreply, State#state{incomplete = <<>>, last_line = CompleteLog}};
+
+
+handle_info({Port, {data, {noeol, Data}}}, State) when Port == State#state.port ->
+  CurrentLog = State#state.incomplete,
+  %?DBG("incomplete stdout ~p", [CurrentLog]),
+  {noreply, State#state{incomplete = <<CurrentLog/binary, Data/binary>>}};
+
+
+%% port is terminated
+handle_info({'EXIT', Port, Reason}, State) when is_port(Port), Port == State#state.port ->
+  ?DBG("Command is terminated with reason ~p", [Reason]),
+
+  case start_worker(State) of
+    {ok, NewState} ->
+      {noreply, NewState};
+
+    _ ->
+      {noreply, State#state{port = undefined, pid = undefined}}
+  end;
+
+handle_info({Port, {exit_status, ExitStatus}}, State) when is_port(Port), Port == State#state.port ->
+  ?DBG("Command is terminated with exit status ~p", [ExitStatus]),
+
+  case start_worker(State) of
+    {ok, NewState} ->
+      {noreply, NewState};
+
+    _ ->
+      {noreply, State#state{port = undefined, pid = undefined}}
+  end;
+
+
+%% terminating self
+handle_info({'EXIT', FromPid, Reason}, State) when is_pid(FromPid), is_port(State#state.port) ->
+  {noreply, do_terminate_self(Reason, State)};
+
+
+handle_info(Info, State) ->
+  ?DBG("Worker recieve ~p", [Info]),
   {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -138,6 +195,11 @@ handle_info(_Info, State) ->
 %%--------------------------------------------------------------------
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
     State :: #state{}) -> term()).
+
+terminate(Reason, State) when is_port(State#state.port) ->
+  do_terminate_self(Reason, State),
+  ok;
+
 terminate(_Reason, _State) ->
   ok.
 
@@ -158,3 +220,58 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+start_worker(State) ->
+  Worker = State#state.config,
+  try
+    Port = open_port({spawn, Worker#worker.command}, [stream, binary, exit_status, {line, 1024}]),%%nouse_stdio
+    {os_pid, Pid} = erlang:port_info(Port, os_pid),
+
+    ?DBG("Worker ~p started on port ~p with pid ~p", [Worker, Port, Pid]),
+
+    {ok, State#state{port = Port, pid = Pid}}
+  catch
+    _:Error ->
+      ?DBG("Error '~p' occured while starting worker", [Error]),
+      {error, {worker, Error}, State#state{port = undefined, pid = undefined}}
+  end.
+
+
+stop_worker(State) ->
+  Worker = (State#state.config)#worker.name,
+  ?DBG("Kill worker ~p", [Worker]),
+
+  os:cmd(io_lib:format("kill -9 ~p", [State#state.pid])),
+  port_close(State#state.port),
+  {ok, State#state{port = undefined, pid = undefined}}.
+
+
+restart_worker(#state{config = Worker} = State) when Worker#worker.restart == disallow ->
+  {error, disallow, State};
+
+restart_worker(#state{config = Worker} = State) when Worker#worker.restart == prestart ->
+  case start_worker(State) of
+    {ok, NewState} ->
+      stop_worker(State),
+      {ok, NewState};
+
+    {error, Error, _} ->
+      {error, Error, State}
+  end;
+
+restart_worker(State) ->
+  stop_worker(State),
+  start_worker(State).
+
+
+do_terminate_self(Reason, State) ->
+  ?DBG("Terminate worker with reason ~p", [Reason]),
+  case stop_worker(State) of
+    {ok, NewState} ->
+      NewState;
+
+    {error, Error, NewState} ->
+      ?DBG("Error while terminating worker ~p", [Error]),
+      NewState
+  end.
+
