@@ -15,7 +15,8 @@
 %% API
 -export([
   start_link/1,
-  get_name/1
+  get_name/1,
+  get_proc_pid/1
 ]).
 
 %% gen_server callbacks
@@ -52,6 +53,10 @@ start_link(Worker) when is_record(Worker, worker) ->
 
 get_name(WorkerRef) when is_pid(WorkerRef) ->
   gen_server:call(WorkerRef, get_name).
+
+
+get_proc_pid(WorkerRef) when is_pid(WorkerRef) ->
+  gen_server:call(WorkerRef, get_proc_pid).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -103,6 +108,9 @@ init([Worker]) when is_record(Worker, worker) ->
 handle_call(get_name, _From, State) ->
   {reply, (State#state.config)#worker.name, State};
 
+handle_call(get_proc_pid, _From, State) ->
+  {reply, State#state.pid, State};
+
 
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
@@ -139,7 +147,7 @@ handle_cast(_Request, State) ->
 handle_info({Port, {data, {eol, Data}}}, State) when Port == State#state.port ->
   CurrentLog = State#state.incomplete,
   CompleteLog = <<CurrentLog/binary, Data/binary>>,
-  %?DBG("complete stdout ~p", [CompleteLog]),
+  ?DBG("complete stdout ~p", [CompleteLog]),
   {noreply, State#state{incomplete = <<>>, last_line = CompleteLog}};
 
 
@@ -152,25 +160,11 @@ handle_info({Port, {data, {noeol, Data}}}, State) when Port == State#state.port 
 %% port is terminated
 handle_info({'EXIT', Port, Reason}, State) when is_port(Port), Port == State#state.port ->
   ?DBG("Command is terminated with reason ~p", [Reason]),
-
-  case start_worker(State) of
-    {ok, NewState} ->
-      {noreply, NewState};
-
-    _ ->
-      {noreply, State#state{port = undefined, pid = undefined}}
-  end;
+  {stop, shutdown, State#state{port = undefined, pid = undefined}};
 
 handle_info({Port, {exit_status, ExitStatus}}, State) when is_port(Port), Port == State#state.port ->
   ?DBG("Command is terminated with exit status ~p", [ExitStatus]),
-
-  case start_worker(State) of
-    {ok, NewState} ->
-      {noreply, NewState};
-
-    _ ->
-      {noreply, State#state{port = undefined, pid = undefined}}
-  end;
+  {stop, shutdown, State#state{port = undefined, pid = undefined}};
 
 
 %% terminating self
@@ -239,7 +233,7 @@ start_worker(State) ->
 
 stop_worker(State) ->
   Worker = (State#state.config)#worker.name,
-  ?DBG("Kill worker ~p", [Worker]),
+  ?DBG("Kill worker ~p [~p]", [Worker, State#state.pid]),
 
   os:cmd(io_lib:format("kill -9 ~p", [State#state.pid])),
   port_close(State#state.port),

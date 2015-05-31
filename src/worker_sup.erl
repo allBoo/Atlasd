@@ -23,6 +23,9 @@
 -export([init/1]).
 
 
+-define(WORKER(A), {worker, {worker, start_link, [A]}, transient, 5000, worker, [worker]}).
+-define(MONITOR(I, A), {I, {I, start_link, A}, transient, 5000, worker, [I]}).
+
 %%%===================================================================
 %%% API functions
 %%%===================================================================
@@ -39,11 +42,11 @@ start_link(Worker) when is_record(Worker, worker) ->
   case supervisor:start_link(?MODULE, []) of
     {ok, SupPid} when is_pid(SupPid) ->
       %% start worker
-      case supervisor:start_child(SupPid, ?CHILD(worker, [Worker])) of
+      case supervisor:start_child(SupPid, ?WORKER(Worker)) of
         {ok, WorkerPid} when is_pid(WorkerPid) ->
           %% start monitors
           WorkerData = [SupPid, WorkerPid, Worker],
-          {ok, _} = supervisor:start_child(SupPid, ?CHILD(worker_monitor_default, WorkerData)),
+          {ok, _} = supervisor:start_child(SupPid, ?MONITOR(worker_monitor_default, WorkerData)),
 
           %% return supervisor ref
           {ok, SupPid};
@@ -96,7 +99,7 @@ get_worker_name(SupRef) ->
   ignore |
   {error, Reason :: term()}).
 init([]) ->
-  {ok, { {rest_for_one, 5, 10}, []} }.
+  {ok, { {one_for_one, 5, 10}, []} }.
 
 %%%===================================================================
 %%% Internal functions

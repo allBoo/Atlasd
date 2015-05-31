@@ -17,8 +17,8 @@
 
 %% gen_fsm callbacks
 -export([init/1,
-  state_name/2,
-  state_name/3,
+  wait/2,
+  monitor/2,
   handle_event/3,
   handle_sync_event/4,
   handle_info/3,
@@ -27,7 +27,13 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {}).
+-record(state, {
+  sup_pid = undefined :: pid(),
+  worker_pid = undefined :: pid(),
+  worker_ref = undefined :: reference(),
+  worker_proc = undefined :: integer(),
+  worker = undefined :: #worker{}
+}).
 
 %%%===================================================================
 %%% API
@@ -63,9 +69,23 @@ start_link(SupPid, WorkerPid, Worker) when is_pid(SupPid), is_pid(WorkerPid), is
   {ok, StateName :: atom(), StateData :: #state{}} |
   {ok, StateName :: atom(), StateData :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([_SupPid, _WorkerPid, Worker]) ->
+init([SupPid, WorkerPid, Worker]) ->
   ?DBG("Worker default monitor started ~p", [Worker#worker.name]),
-  {ok, state_name, #state{}}.
+  WorkerProc = worker:get_proc_pid(WorkerPid),
+  State = if
+            is_integer(WorkerProc) -> monitor;
+            true -> wait
+          end,
+
+  Monitor = erlang:monitor(process, WorkerPid),
+
+  {ok, State, #state{
+    sup_pid = SupPid,
+    worker_pid = WorkerPid,
+    worker_ref = Monitor,
+    worker_proc = WorkerProc,
+    worker = Worker
+  }, 1000}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -78,39 +98,25 @@ init([_SupPid, _WorkerPid, Worker]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(state_name(Event :: term(), State :: #state{}) ->
+-spec(wait(Event :: term(), State :: #state{}) ->
   {next_state, NextStateName :: atom(), NextState :: #state{}} |
   {next_state, NextStateName :: atom(), NextState :: #state{},
     timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
-state_name(_Event, State) ->
-  {next_state, state_name, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% There should be one instance of this function for each possible
-%% state name. Whenever a gen_fsm receives an event sent using
-%% gen_fsm:sync_send_event/[2,3], the instance of this function with
-%% the same name as the current state name StateName is called to
-%% handle the event.
+wait(_Event, State) ->
+  WorkerProc = worker:get_proc_pid(State#state.worker_pid),
+  NextState = if
+                is_integer(WorkerProc) -> monitor;
+                true -> wait
+              end,
+
+  {next_state, NextState, State#state{worker_proc = WorkerProc}, 1000}.
+
 %%
-%% @end
-%%--------------------------------------------------------------------
--spec(state_name(Event :: term(), From :: {pid(), term()},
-    State :: #state{}) ->
-  {next_state, NextStateName :: atom(), NextState :: #state{}} |
-  {next_state, NextStateName :: atom(), NextState :: #state{},
-    timeout() | hibernate} |
-  {reply, Reply, NextStateName :: atom(), NextState :: #state{}} |
-  {reply, Reply, NextStateName :: atom(), NextState :: #state{},
-    timeout() | hibernate} |
-  {stop, Reason :: normal | term(), NewState :: #state{}} |
-  {stop, Reason :: normal | term(), Reply :: term(),
-    NewState :: #state{}}).
-state_name(_Event, _From, State) ->
-  Reply = ok,
-  {reply, Reply, state_name, State}.
+monitor(_Event, State) ->
+  {next_state, monitor, State, 1000}.
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -168,6 +174,15 @@ handle_sync_event(_Event, _From, StateName, State) ->
   {next_state, NextStateName :: atom(), NewStateData :: term(),
     timeout() | hibernate} |
   {stop, Reason :: normal | term(), NewStateData :: term()}).
+
+
+%% worker stoped
+handle_info({'DOWN', MonitorRef, _, _WorkerPid, _}, _, State) when MonitorRef == State#state.worker_ref ->
+  ?DBG("Shutdown worker ~p supervisor ~p", [(State#state.worker)#worker.name, State#state.sup_pid]),
+  exit(State#state.sup_pid, kill),
+  {stop, shutdown, State};
+
+
 handle_info(_Info, StateName, State) ->
   {next_state, StateName, State}.
 

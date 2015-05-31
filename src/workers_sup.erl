@@ -93,7 +93,7 @@ get_workers() ->
   {error, Reason :: term()}).
 init([]) ->
   {ok, { {simple_one_for_one, 5, 10}, [
-    {worker_sup, {worker_sup, start_link, []}, transient, infinity, supervisor, [worker_sup]}
+    {worker_sup, {worker_sup, start_link, []}, temporary, infinity, supervisor, [worker_sup]}
   ]}}.
 
 %%%===================================================================
