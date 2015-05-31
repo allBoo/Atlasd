@@ -115,6 +115,12 @@ wait(_Event, State) ->
 
 %%
 monitor(_Event, State) ->
+  case check_memory_usage(State) of
+    false ->
+      ?LOG("Memory consumption too large on worker ~p", [(State#state.worker)#worker.name]),
+      ok;
+    true -> ok
+  end,
   {next_state, monitor, State, 1000}.
 
 
@@ -217,3 +223,39 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+check_memory_usage(State) when (State#state.worker)#worker.max_mem =/= infinity ->
+  Worker = State#state.worker,
+  Memory = get_mem_usage(State#state.worker_proc),
+  MaxMem = case Worker#worker.max_mem of
+             {k, Value} -> Value * 1024;
+             {m, Value} -> Value * 1024 * 1024;
+             {g, Value} -> Value * 1024 * 1024 * 1024;
+             _ -> infinity
+           end,
+  ?DBG("Memory consumption of worker ~p is ~p", [Worker#worker.name, Memory]),
+  Memory < MaxMem;
+
+check_memory_usage(_State) ->
+  true.
+
+
+%% TODO this is only for linux
+get_mem_usage(ProcPid) ->
+  FileName = "/proc/" ++ integer_to_list(ProcPid) ++ "/status",
+  {ok, Device} = file:open(FileName, [read]),
+  try calc_mem_lines(Device)
+    after file:close(Device)
+  end.
+
+calc_mem_lines(Device) ->
+  case io:get_line(Device, "") of
+    eof  -> 0;
+    Line ->
+      case string:tokens(Line, " \t\n") of
+        [Part, Mem, "kB"] when (Part == "VmRSS:") or (Part == "VmSwap:") ->
+          list_to_integer(Mem) * 1024;
+        _ -> 0
+      end
+        + calc_mem_lines(Device)
+  end.
