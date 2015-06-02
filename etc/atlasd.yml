@@ -54,7 +54,7 @@ monitor:
     user: guest
     pass: guest
 
-    workers:
+    monitors:
       task-listen-low:
         exchange: parsley
         queue: "ds.conveyer.task.low"

@@ -28,15 +28,17 @@
   code_change/3]).
 
 -define(SERVER, ?MODULE).
--define(REBALANCE, 5000).
+-define(REBALANCE, 5000). %% milliseconds
+-define(MAX_REBALANCE, 15000000). %% microseconds
 
 -record(state, {
-  role          :: master | slave | undefined,  %% current node role
-  master        :: pid() | undefined,           %% master pid
-  master_node   :: node() | undefined,          %% master node
-  worker_config :: [#worker{}],                 %% base workers config
-  worker_nodes  :: [node()],                    %% list of worker nodes
-  workers       :: [{node(), pid(), Name :: atom()}]    %% current runing workers
+  role           :: master | slave | undefined,  %% current node role
+  master         :: pid() | undefined,           %% master pid
+  master_node    :: node() | undefined,          %% master node
+  worker_config  :: [#worker{}],                 %% base workers config
+  worker_nodes   :: [node()],                    %% list of worker nodes
+  workers        :: [{node(), pid(), Name :: atom()}],    %% current runing workers
+  rebalanced = 0 :: integer()
 }).
 
 %%%===================================================================
@@ -130,7 +132,7 @@ handle_call(_Request, _From, State) ->
 
 %% i am a master ^_^
 handle_cast(elected, State) ->
-  {noreply, cluster_handshake(State), ?REBALANCE};
+  {noreply, cluster_handshake(State), rebalance_after(State#state.rebalanced)};
 
 
 %% worker started on any node
@@ -139,7 +141,7 @@ handle_cast({worker_started, {Node, Pid, Name}}, State) when State#state.role ==
   RuningWorkers = State#state.workers ++ [{Node, Pid, Name}],
   ?DBG("New worker ~p[~p] started at node ~p", [Name, Pid, Node]),
   ?DBG("RuningWorkers ~p", [RuningWorkers]),
-  {noreply, State#state{workers = RuningWorkers}, ?REBALANCE};
+  {noreply, State#state{workers = RuningWorkers}, rebalance_after(State#state.rebalanced)};
 
 %% worker stoped on any node
 handle_cast({worker_stoped, {Node, Pid, Name}}, State) when State#state.role == master,
@@ -147,7 +149,7 @@ handle_cast({worker_stoped, {Node, Pid, Name}}, State) when State#state.role == 
   RuningWorkers = State#state.workers -- [{Node, Pid, Name}],
   ?DBG("Worker ~p[~p] stoped at node ~p", [Name, Pid, Node]),
   ?DBG("RuningWorkers ~p", [RuningWorkers]),
-  {noreply, State#state{workers = RuningWorkers}, ?REBALANCE};
+  {noreply, State#state{workers = RuningWorkers}, rebalance_after(State#state.rebalanced)};
 
 
 %% REBALANCE cluster state
@@ -197,7 +199,7 @@ handle_info({_From, {node, down, Node}}, State) when State#state.role == slave,
 
 handle_info({_From, {node, up, Node}}, State) when State#state.role == master ->
   ?DBG("New node has connected ~p. Send master notification", [Node]),
-  {noreply, node_handshake(Node, State), ?REBALANCE};
+  {noreply, node_handshake(Node, State), rebalance_after(State#state.rebalanced)};
 
 
 handle_info({_From, {node, down, Node}}, State) when State#state.role == master ->
@@ -209,7 +211,7 @@ handle_info({_From, {node, down, Node}}, State) when State#state.role == master 
       end, State#state.workers),
       ?DBG("Worker node ~p has down. WorkerNodes are ~p and workers are ~p", [Node, WorkerNodes, RuningWorkers]),
       
-      {noreply, State#state{worker_nodes = WorkerNodes, workers = RuningWorkers}, ?REBALANCE};
+      {noreply, State#state{worker_nodes = WorkerNodes, workers = RuningWorkers}, rebalance_after(State#state.rebalanced)};
 
     _ ->
       {noreply, State}
@@ -318,11 +320,24 @@ node_handshake(Node, State) ->
 
 
 %% rebalancing
+rebalance_after(LastRebalanced) when LastRebalanced == 0 ->
+  ?REBALANCE;
+
+rebalance_after(LastRebalanced) ->
+  LastRun = timer:now_diff(os:timestamp(), LastRebalanced),
+  if
+    LastRun > ?MAX_REBALANCE ->
+      rebalance(),
+      ?REBALANCE;
+    true -> ?REBALANCE
+  end.
+
+
 do_rebalance(State) ->
   ?DBG("REBALANCE CLUSTER", []),
   %% ensure all workers are runing
   ensure_runing(State#state.worker_config, State#state.workers, State#state.worker_nodes),
-  State.
+  State#state{rebalanced = os:timestamp()}.
 
 
 ensure_runing([], _, _) ->

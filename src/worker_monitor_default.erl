@@ -234,7 +234,7 @@ check_memory_usage(State) when (State#state.worker)#worker.max_mem =/= infinity 
              {g, Value} -> Value * 1024 * 1024 * 1024;
              _ -> infinity
            end,
-  ?DBG("Memory consumption of worker ~p is ~p", [Worker#worker.name, Memory]),
+  %?DBG("Memory consumption of worker ~p is ~p", [Worker#worker.name, Memory]),
   Memory < MaxMem;
 
 check_memory_usage(_State) ->

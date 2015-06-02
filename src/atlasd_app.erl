@@ -12,7 +12,7 @@
 
 start(_StartType, _StartArgs) ->
   AppSup = atlasd_sup:start_link(),
-  observer:start(),
+  %observer:start(),
 
   %% start worker sup
   case config:get("node.worker") of
