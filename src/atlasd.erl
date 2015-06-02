@@ -19,7 +19,8 @@
   worker_started/1,
   worker_stoped/1,
   start_worker/1,
-  stop_worker/1
+  stop_worker/1,
+  restart_worker/1
 ]).
 
 %% gen_server callbacks
@@ -60,6 +61,10 @@ start_worker(Worker) ->
 %% stop worker
 stop_worker(WorkerPid) when is_pid(WorkerPid) ->
   gen_server:cast(?SERVER, {stop_worker, WorkerPid}).
+
+%% restart worker
+restart_worker(WorkerPid) when is_pid(WorkerPid) ->
+  gen_server:cast(?SERVER, {restart_worker, WorkerPid}).
 
 %% workers must use this function to inform master about itself
 worker_started({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
@@ -149,6 +154,13 @@ handle_cast({start_worker, Worker}, State) ->
 handle_cast({stop_worker, WorkerPid}, State) when is_pid(WorkerPid) ->
   ?DBG("Try to gracefully stop worker ~p", [WorkerPid]),
   do_stop_worker(WorkerPid),
+  {noreply, State};
+
+
+%% restart worker
+handle_cast({restart_worker, WorkerPid}, State) when is_pid(WorkerPid) ->
+  ?DBG("Try to gracefully restart worker ~p", [WorkerPid]),
+  do_restart_worker(WorkerPid),
   {noreply, State};
 
 
@@ -243,3 +255,31 @@ do_stop_worker(WorkerPid) when is_pid(WorkerPid) ->
 
 do_stop_worker(_) ->
   false.
+
+
+do_restart_worker(WorkerPid) when is_pid(WorkerPid) ->
+  Worker = worker:get_config(WorkerPid),
+  do_restart_worker(WorkerPid, Worker);
+
+do_restart_worker(_) ->
+  false.
+
+do_restart_worker(WorkerPid, Worker) when is_pid(WorkerPid),
+                                          Worker#worker.restart == disallow ->
+  ?DBG("Restart of worker ~p is not allowed", [Worker#worker.name]),
+  {error, disallow};
+
+do_restart_worker(WorkerPid, Worker) when is_pid(WorkerPid),
+                                          Worker#worker.restart == prestart ->
+  case do_start_worker(Worker) of
+    {ok, NewWorker} ->
+      do_stop_worker(WorkerPid),
+      {ok, NewWorker};
+
+    {error, Error} ->
+      {error, Error}
+  end;
+
+do_restart_worker(WorkerPid, Worker) when is_pid(WorkerPid) ->
+  do_stop_worker(WorkerPid),
+  do_start_worker(Worker).

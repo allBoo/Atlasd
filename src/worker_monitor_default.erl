@@ -118,6 +118,7 @@ monitor(_Event, State) ->
   case check_memory_usage(State) of
     false ->
       ?LOG("Memory consumption too large on worker ~p", [(State#state.worker)#worker.name]),
+      atlasd:restart_worker(State#state.worker_pid),
       ok;
     true -> ok
   end,

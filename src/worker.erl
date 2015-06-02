@@ -16,7 +16,8 @@
 -export([
   start_link/1,
   get_name/1,
-  get_proc_pid/1
+  get_proc_pid/1,
+  get_config/1
 ]).
 
 %% gen_server callbacks
@@ -57,6 +58,11 @@ get_name(WorkerRef) when is_pid(WorkerRef) ->
 
 get_proc_pid(WorkerRef) when is_pid(WorkerRef) ->
   gen_server:call(WorkerRef, get_proc_pid).
+
+
+get_config(WorkerRef) when is_pid(WorkerRef) ->
+  gen_server:call(WorkerRef, get_config).
+
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -111,6 +117,8 @@ handle_call(get_name, _From, State) ->
 handle_call(get_proc_pid, _From, State) ->
   {reply, State#state.pid, State};
 
+handle_call(get_config, _From, State) ->
+  {reply, State#state.config, State};
 
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
@@ -221,7 +229,7 @@ start_worker(State) ->
     Port = open_port({spawn, Worker#worker.command}, [stream, binary, exit_status, {line, 1024}]),%%nouse_stdio
     {os_pid, Pid} = erlang:port_info(Port, os_pid),
 
-    ?DBG("Worker ~p started on port ~p with pid ~p", [Worker, Port, Pid]),
+    ?DBG("Worker ~p started on port ~p with pid ~p", [Worker#worker.name, Port, Pid]),
 
     {ok, State#state{port = Port, pid = Pid}}
   catch
@@ -240,22 +248,22 @@ stop_worker(State) ->
   {ok, State#state{port = undefined, pid = undefined}}.
 
 
-restart_worker(#state{config = Worker} = State) when Worker#worker.restart == disallow ->
-  {error, disallow, State};
-
-restart_worker(#state{config = Worker} = State) when Worker#worker.restart == prestart ->
-  case start_worker(State) of
-    {ok, NewState} ->
-      stop_worker(State),
-      {ok, NewState};
-
-    {error, Error, _} ->
-      {error, Error, State}
-  end;
-
-restart_worker(State) ->
-  stop_worker(State),
-  start_worker(State).
+%% restart_worker(#state{config = Worker} = State) when Worker#worker.restart == disallow ->
+%%   {error, disallow, State};
+%%
+%% restart_worker(#state{config = Worker} = State) when Worker#worker.restart == prestart ->
+%%   case start_worker(State) of
+%%     {ok, NewState} ->
+%%       stop_worker(State),
+%%       {ok, NewState};
+%%
+%%     {error, Error, _} ->
+%%       {error, Error, State}
+%%   end;
+%%
+%% restart_worker(State) ->
+%%   stop_worker(State),
+%%   start_worker(State).
 
 
 do_terminate_self(Reason, State) ->

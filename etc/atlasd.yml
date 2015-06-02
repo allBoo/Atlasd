@@ -54,6 +54,20 @@ monitor:
     user: guest
     pass: guest
 
+    workers:
+      task-listen-low:
+        exchange: parsley
+        queue: "ds.conveyer.task.low"
+
+      task-listen-middle:
+        exchange: parsley
+        queue: "ds.conveyer.task.middle"
+
+      task-listen-high:
+        exchange: parsley
+        queue: "ds.conveyer.task.high"
+
+
 ############################## Workers ###############################
 workers:
   task-listen-low:
@@ -63,10 +77,6 @@ workers:
     restart: disallow
     procs:
       allways: 1
-    monitor:
-      rabbimq:
-        exchange: parsley
-        queue: "ds.conveyer.task.low"
 
 #  task-listen-middle:
 #    command: "/apps/atlasd/priv/command2.sh"
@@ -78,10 +88,6 @@ workers:
 #      min: 1
 #      max: 15
 #      max_per_node: 1
-#    monitor:
-#      rabbimq:
-#        exchange: parsley
-#        queue: "ds.conveyer.task.middle"
 
   task-listen-high:
     command: "/apps/atlasd/priv/command3.sh"
@@ -92,7 +98,3 @@ workers:
     procs:
       min: 1
       each_node: 1
-    monitor:
-      rabbimq:
-        exchange: parsley
-        queue: "ds.conveyer.task.high"
