@@ -4,16 +4,16 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created : 28. апр 2015 1:24
+%%% Created : 04. июн 2015 0:13
 %%%-------------------------------------------------------------------
--module(master_sup).
+-module(master_monitors_sup).
 -author("alboo").
 
 -behaviour(supervisor).
 -include_lib("atlasd.hrl").
 
 %% API
--export([start_link/0, start_monitors/0]).
+-export([start_link/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -31,21 +31,7 @@
 -spec(start_link() ->
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 start_link() ->
-  supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-
-%% starts the monitors
-start_monitors() ->
-  %% kill instances of the running monitors
-  case global:whereis_name(master_monitors_sup) of
-    undefined -> ok;
-
-    Pid ->
-      supervisor:terminate_child({master_sup, node(Pid)}, master_monitors_sup),
-      supervisor:delete_child({master_sup, node(Pid)}, master_monitors_sup)
-  end,
-
-  supervisor:start_child(?MODULE, ?CHILD_SUP(master_monitors_sup)).
+  supervisor:start_link({global, ?MODULE}, ?MODULE, []).
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -68,9 +54,22 @@ start_monitors() ->
   }} |
   ignore |
   {error, Reason :: term()}).
+
 init([]) ->
-  {ok, { {rest_for_one, 5, 10}, [?CHILD(master)]} }.
+  Monitors = get_master_monitors(),
+  {ok, { {one_for_one, 5, 10}, Monitors} }.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+get_master_monitors() ->
+  lists:flatmap(fun({Monitor, Config}) ->
+    MonitorModule = list_to_atom("monitor_" ++ Monitor),
+    case apply(MonitorModule, mode, []) of
+      master ->
+        apply(MonitorModule, child_specs, [Config]);
+
+      _ -> []
+    end
+  end, config:get("monitors")).

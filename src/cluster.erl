@@ -144,7 +144,7 @@ handle_call({poll, Message}, _From, State) ->
 
 %% send sync request to node
 handle_call({poll, Node, Message}, _From, State) when is_atom(Node) ->
-  {reply, gen_server:call({atlasd, Node}, Message), State};
+  {reply, gen_server:call({atlasd, Node}, Message, infinity), State};
 
 %% send sync request to list of nodes
 handle_call({poll, Nodes, Message}, _From, State) when is_list(Nodes) ->

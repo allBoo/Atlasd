@@ -43,13 +43,12 @@ http:
 
 ############################## Monitors ###############################
 
-monitors: ["os", "rabbimq"]
-
-monitor:
+monitors:
   os:
     mem_watermark: 80
 
-  rabbimq:
+  rabbitmq:
+    mode: api
     host: "192.168.2.5"
     user: guest
     pass: guest

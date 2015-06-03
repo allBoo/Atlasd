@@ -132,6 +132,7 @@ handle_call(_Request, _From, State) ->
 
 %% i am a master ^_^
 handle_cast(elected, State) ->
+  master_sup:start_monitors(),
   {noreply, cluster_handshake(State), rebalance_after(State#state.rebalanced)};
 
 
