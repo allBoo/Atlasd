@@ -88,6 +88,7 @@ init([]) ->
   ok = global:sync(),
 
   WorkerConfig = config:workers(),
+  ?DBG("workers ~p", [WorkerConfig]),
   case whereis_master() of
     undefined ->
       ?DBG("No master found. Wait for 15 secs to become as master", []),
@@ -151,6 +152,37 @@ handle_cast({worker_stoped, {Node, Pid, Name}}, State) when State#state.role == 
   ?DBG("Worker ~p[~p] stoped at node ~p", [Name, Pid, Node]),
   ?DBG("RuningWorkers ~p", [RuningWorkers]),
   {noreply, State#state{workers = RuningWorkers}, rebalance_after(State#state.rebalanced)};
+
+
+%% change workers count
+handle_cast({change_workers_count, {WorkerName, Count}}, State) when State#state.role == master,
+                                                                     is_atom(WorkerName), is_integer(Count), Count >= 0 ->
+  WorkerConfig = change_worker_procs_count(State#state.worker_config, WorkerName, Count),
+
+  {noreply, State#state{worker_config = WorkerConfig}, rebalance_after(State#state.rebalanced)};
+
+
+%% change workers count
+handle_cast({increase_workers, WorkerName}, State) when State#state.role == master,
+                                                        is_atom(WorkerName) ->
+  Instances = get_worker_instances(WorkerName, State#state.workers),
+  InstancesCount = length(Instances),
+  WorkerConfig = change_worker_procs_count(State#state.worker_config, WorkerName, InstancesCount + 1),
+
+  {noreply, State#state{worker_config = WorkerConfig}, rebalance_after(State#state.rebalanced)};
+
+
+%% change workers count
+handle_cast({decrease_workers, WorkerName}, State) when State#state.role == master,
+  is_atom(WorkerName) ->
+  Instances = get_worker_instances(WorkerName, State#state.workers),
+  InstancesCount = case length(Instances) of
+                     X when X > 0 -> X - 1;
+                     _ -> 0
+                   end ,
+  WorkerConfig = change_worker_procs_count(State#state.worker_config, WorkerName, InstancesCount),
+
+  {noreply, State#state{worker_config = WorkerConfig}, rebalance_after(State#state.rebalanced)};
 
 
 %% REBALANCE cluster state
@@ -516,3 +548,15 @@ get_worker_instances(WorkerName, WorkersList) ->
   lists:filter(fun({_Node, _Pid, Name}) ->
     Name == WorkerName
   end, WorkersList).
+
+%% change worker min and max procs count in config
+change_worker_procs_count(WorkersConfig, WorkerName, Count) ->
+  lists:map(fun(Worker) ->
+              Procs = if
+                        Worker#worker.name == WorkerName ->
+                          (Worker#worker.procs)#worker_procs{min = Count, max = Count};
+                        true -> Worker#worker.procs
+                      end,
+              Worker#worker{procs = Procs}
+            end,
+    WorkersConfig).
