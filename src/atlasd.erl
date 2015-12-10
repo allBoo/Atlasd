@@ -20,7 +20,10 @@
   worker_stoped/1,
   start_worker/1,
   stop_worker/1,
-  restart_worker/1
+  restart_worker/1,
+  increase_workers/1,
+  decrease_workers/1,
+  change_workers_count/2
 ]).
 
 %% gen_server callbacks
@@ -50,12 +53,12 @@
 start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-
+%% test if node is a worker
 is_worker() ->
   config:get("node.worker", false, boolean).
 
 %% start worker
-start_worker(Worker) ->
+start_worker(Worker) when is_record(Worker, worker); is_atom(Worker); is_list(Worker) ->
   gen_server:cast(?SERVER, {start_worker, Worker}).
 
 %% stop worker
@@ -65,6 +68,18 @@ stop_worker(WorkerPid) when is_pid(WorkerPid) ->
 %% restart worker
 restart_worker(WorkerPid) when is_pid(WorkerPid) ->
   gen_server:cast(?SERVER, {restart_worker, WorkerPid}).
+
+%% tell to master to change workers count
+increase_workers(Worker) when is_record(Worker, worker); is_atom(Worker); is_list(Worker) ->
+  gen_server:cast(?SERVER, {increase_workers, Worker}).
+
+decrease_workers(Worker) when is_record(Worker, worker); is_atom(Worker); is_list(Worker) ->
+  gen_server:cast(?SERVER, {decrease_workers, Worker}).
+
+change_workers_count(Worker, Count) when is_record(Worker, worker), is_integer(Count), Count >= 0 ;
+                                         is_atom(Worker), is_integer(Count), Count >= 0;
+                                         is_list(Worker), is_integer(Count), Count >= 0 ->
+  gen_server:cast(?SERVER, {change_workers_count, {Worker, Count}}).
 
 %% workers must use this function to inform master about itself
 worker_started({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
@@ -164,6 +179,42 @@ handle_cast({restart_worker, WorkerPid}, State) when is_pid(WorkerPid) ->
   {noreply, State};
 
 
+%% increase workers count on one
+handle_cast({increase_workers, Worker}, State) ->
+  ?DBG("Try to increase workers ~p count on 1", [Worker]),
+  case resolve_worker(Worker) of
+    WorkerCnf when is_record(WorkerCnf, worker) ->
+      gen_server:cast(State#state.master, {increase_workers, WorkerCnf#worker.name});
+    _ ->
+      neok
+  end,
+  {noreply, State};
+
+
+%% decrease workers count on one
+handle_cast({decrease_workers, Worker}, State) ->
+  ?DBG("Try to decrease workers ~p count on 1", [Worker]),
+  case resolve_worker(Worker) of
+    WorkerCnf when is_record(WorkerCnf, worker) ->
+      gen_server:cast(State#state.master, {decrease_workers, WorkerCnf#worker.name});
+    _ ->
+      neok
+  end,
+  {noreply, State};
+
+
+%% change workers count
+handle_cast({change_workers_count, {Worker, Count}}, State) ->
+  ?DBG("Try to change workers ~p count to ~p", [Worker, Count]),
+  case resolve_worker(Worker) of
+    WorkerCnf when is_record(WorkerCnf, worker) ->
+      gen_server:cast(State#state.master, {change_workers_count, {WorkerCnf#worker.name, Count}});
+    _ ->
+      neok
+  end,
+  {noreply, State};
+
+
 %% inform master about workers
 handle_cast({worker_started, {Pid, Name}}, State) when is_pid(State#state.master),
                                                        is_pid(Pid), is_atom(Name) ->
@@ -241,6 +292,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+resolve_worker(Worker) when is_atom(Worker); is_list(Worker) ->
+  config:worker(Worker);
+resolve_worker(Worker) when is_record(Worker, worker) ->
+  Worker;
+resolve_worker(_) -> false.
+
+
 do_start_worker(false) -> false;
 do_start_worker(Worker) when is_atom(Worker); is_list(Worker) ->
   do_start_worker(config:worker(Worker));
@@ -252,7 +310,6 @@ do_start_worker(_) ->
 
 do_stop_worker(WorkerPid) when is_pid(WorkerPid) ->
   workers_sup:stop_worker(WorkerPid);
-
 do_stop_worker(_) ->
   false.
 
@@ -260,7 +317,6 @@ do_stop_worker(_) ->
 do_restart_worker(WorkerPid) when is_pid(WorkerPid) ->
   Worker = worker:get_config(WorkerPid),
   do_restart_worker(WorkerPid, Worker);
-
 do_restart_worker(_) ->
   false.
 
