@@ -23,7 +23,8 @@
   restart_worker/1,
   increase_workers/1,
   decrease_workers/1,
-  change_workers_count/2
+  change_workers_count/2,
+  notify_state/2
 ]).
 
 %% gen_server callbacks
@@ -87,6 +88,19 @@ worker_started({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
 
 worker_stoped({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
   gen_server:cast(?SERVER, {worker_stoped, Worker}).
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% notify master server about cluster state (workers stat, os stat and other)
+%%
+%% @spec notify_state(Type, State) -> ok
+%% @end
+%%--------------------------------------------------------------------
+-spec(notify_state(Type :: worker_state | os_state, State :: any()) -> ok).
+notify_state(Type, State) when is_atom(Type) ->
+  gen_server:cast(?SERVER, {notify_state, {Type, State}}).
+
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -233,6 +247,12 @@ handle_cast({worker_stoped, {Pid, Name}}, State) when is_pid(State#state.master)
 handle_cast({worker_crashed, Pid}, State) when is_pid(State#state.master),
                                                is_pid(Pid) ->
   gen_server:cast(State#state.master, {worker_crashed, {node(), Pid}}),
+  {noreply, State};
+
+
+%% inform master about workers
+handle_cast({notify_state, {Type, Notification}}, State) when is_pid(State#state.master) ->
+  gen_server:cast(State#state.master, {notify_state, node(), {Type, Notification}}),
   {noreply, State};
 
 

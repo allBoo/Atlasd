@@ -185,6 +185,12 @@ handle_cast({decrease_workers, WorkerName}, State) when State#state.role == mast
   {noreply, State#state{worker_config = WorkerConfig}, rebalance_after(State#state.rebalanced)};
 
 
+%% Recieve notifications
+handle_cast({notify_state, Node, {worker_state, WorkerState}}, State) when State#state.role == master, is_record(WorkerState, worker_state) ->
+  balancer:worker_state(Node, WorkerState),
+  {noreply, State};
+
+
 %% REBALANCE cluster state
 handle_cast(rebalance, State) when State#state.role == master ->
   {noreply, do_rebalance(State)};

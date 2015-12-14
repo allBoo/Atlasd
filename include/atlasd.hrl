@@ -46,3 +46,12 @@
   procs    = #worker_procs{},
   monitor  = []               :: [#worker_monitor{}]
 }).
+
+-record(worker_state, {
+  name :: atom(),
+  pid :: pid(),
+  proc :: integer(),
+  memory :: integer(),
+  cpu :: float(),
+  time :: integer()
+}).

@@ -32,7 +32,8 @@
   worker_pid = undefined :: pid(),
   worker_ref = undefined :: reference(),
   worker_proc = undefined :: integer(),
-  worker = undefined :: #worker{}
+  worker = undefined :: #worker{},
+  time = erlang:timestamp()
 }).
 
 %%%===================================================================
@@ -84,7 +85,8 @@ init([SupPid, WorkerPid, Worker]) ->
     worker_pid = WorkerPid,
     worker_ref = Monitor,
     worker_proc = WorkerProc,
-    worker = Worker
+    worker = Worker,
+    time = erlang:timestamp()
   }, 1000}.
 
 %%--------------------------------------------------------------------
@@ -115,7 +117,17 @@ wait(_Event, State) ->
 
 %%
 monitor(_Event, State) ->
-  case check_memory_usage(State) of
+  WorkerState = #worker_state{
+    name = (State#state.worker)#worker.name,
+    pid = State#state.worker_pid,
+    proc = State#state.worker_proc,
+    memory = get_mem_usage(State#state.worker_proc),
+    cpu = get_cpu_usage(State#state.worker_proc),
+    time = timer:now_diff(erlang:timestamp(), State#state.time)
+  },
+  atlasd:notify_state(worker_state, WorkerState),
+
+  case check_memory_usage(WorkerState#worker_state.memory, State) of
     false ->
       ?LOG("Memory consumption too large on worker ~p", [(State#state.worker)#worker.name]),
       atlasd:restart_worker(State#state.worker_pid),
@@ -225,9 +237,8 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-check_memory_usage(State) when (State#state.worker)#worker.max_mem =/= infinity ->
+check_memory_usage(Memory, State) when (State#state.worker)#worker.max_mem =/= infinity ->
   Worker = State#state.worker,
-  Memory = get_mem_usage(State#state.worker_proc),
   MaxMem = case Worker#worker.max_mem of
              {k, Value} -> Value * 1024;
              {m, Value} -> Value * 1024 * 1024;
@@ -237,10 +248,11 @@ check_memory_usage(State) when (State#state.worker)#worker.max_mem =/= infinity 
   %?DBG("Memory consumption of worker ~p is ~p", [Worker#worker.name, Memory]),
   Memory < MaxMem;
 
-check_memory_usage(_State) ->
+check_memory_usage(_Memory, _State) ->
   true.
 
 
+%% calc process memory usage
 %% TODO this is only for linux
 get_mem_usage(ProcPid) ->
   FileName = "/proc/" ++ integer_to_list(ProcPid) ++ "/status",
@@ -259,4 +271,21 @@ calc_mem_lines(Device) ->
         _ -> 0
       end
         + calc_mem_lines(Device)
+  end.
+
+
+%% calc process CPU usage
+get_cpu_usage(ProcPid) ->
+  try
+    Result = os:cmd(io_lib:format("ps -p ~B -o %cpu", [ProcPid])),
+    case io_lib:fread("%CPU\n~f\n", Result) of
+      {ok, [Percents], []} -> Percents;
+      _ ->
+        case io_lib:fread("%CPU\n~d\n", Result) of
+          {ok, [Percents], []} -> Percents + 0.0;
+          _ -> 0.0
+        end
+    end
+  catch
+     _:_ -> 0.0
   end.
