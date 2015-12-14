@@ -3,4 +3,8 @@
 
 deps/gproc
 deps/yamerl
+deps/ibrowse
+deps/jiffy
+deps/nested
 
+erl_crash.dump

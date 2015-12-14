@@ -16,13 +16,13 @@
 -export([
   start_link/1,
   mode/0,
-  child_specs/1
+  child_specs/1,
+  process_queue/2
 ]).
 
 %% gen_fsm callbacks
 -export([init/1,
-  state_name/2,
-  state_name/3,
+  monitor/2,
   handle_event/3,
   handle_sync_event/4,
   handle_info/3,
@@ -37,11 +37,19 @@
   port = "15672",
   user = "guest",
   pass = "guest",
-  vhost = "/",
+  vhost = "%2f",
+  minutes_to_add_consumers = 1000,
   exchange,
   queue,
   task
 }).
+
+
+-record(queue, {name,
+  messages,
+  consumers,
+  publish_rate,
+  ack_rate}).
 
 %%%===================================================================
 %%% API
@@ -126,7 +134,7 @@ parse_monitor([_ | Config], State, Monitors) ->
   {stop, Reason :: term()} | ignore).
 init([Config]) ->
   ?DBG("Started rabbitmq monitor ~p", [Config]),
-  {ok, state_name, #state{}}.
+  {ok, monitor, Config, 10000}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -139,39 +147,16 @@ init([Config]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(state_name(Event :: term(), State :: #state{}) ->
+-spec(monitor(Event :: term(), State :: #state{}) ->
   {next_state, NextStateName :: atom(), NextState :: #state{}} |
   {next_state, NextStateName :: atom(), NextState :: #state{},
     timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
-state_name(_Event, State) ->
-  {next_state, state_name, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% There should be one instance of this function for each possible
-%% state name. Whenever a gen_fsm receives an event sent using
-%% gen_fsm:sync_send_event/[2,3], the instance of this function with
-%% the same name as the current state name StateName is called to
-%% handle the event.
-%%
-%% @end
-%%--------------------------------------------------------------------
--spec(state_name(Event :: term(), From :: {pid(), term()},
-    State :: #state{}) ->
-  {next_state, NextStateName :: atom(), NextState :: #state{}} |
-  {next_state, NextStateName :: atom(), NextState :: #state{},
-    timeout() | hibernate} |
-  {reply, Reply, NextStateName :: atom(), NextState :: #state{}} |
-  {reply, Reply, NextStateName :: atom(), NextState :: #state{},
-    timeout() | hibernate} |
-  {stop, Reason :: normal | term(), NewState :: #state{}} |
-  {stop, Reason :: normal | term(), Reply :: term(),
-    NewState :: #state{}}).
-state_name(_Event, _From, State) ->
-  Reply = ok,
-  {reply, Reply, state_name, State}.
+monitor(_Event, State) ->
+  inets:start(),
+  process_queue(rabbitmq_api:get_queue_by_name(State), State),
+  {next_state, monitor, State, 10000}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -263,3 +248,61 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+process_queue(Queue, State) when Queue /= false ->
+  ?DBG("Processing queue: ~p~n", [Queue#queue.name]),
+  Estimated_time =
+    if
+      Queue#queue.ack_rate == 0.0 -> -1;
+      true -> round((Queue#queue.messages / Queue#queue.ack_rate) / 60)
+    end,
+
+  if
+    Queue#queue.messages =:= 0, Queue#queue.consumers =/= 0, Queue#queue.publish_rate =:= 0.0 ->
+    ?DBG("~w messages, ~w consumers, consumers must be killed ~n", [
+      Queue#queue.messages,
+      Queue#queue.consumers
+    ]),
+    atlasd:change_workers_count(State#state.task, 0);
+    Queue#queue.messages =:= 0, Queue#queue.consumers =/= 0, Queue#queue.publish_rate =/= 0.0 ->
+      ?DBG("~w messages, ~w consumers, publish rate ~w, consumers must be decreased ~n", [
+        Queue#queue.messages,
+        Queue#queue.consumers,
+        Queue#queue.publish_rate
+      ]),
+      atlasd:decrease_workers(State#state.task);
+    true -> ok
+  end,
+
+  if
+    Queue#queue.messages =/= 0, Queue#queue.consumers =:= 0 ->
+    ?DBG("~p consumers, ~p messages, consumers must be added ~n", [
+      Queue#queue.consumers,
+      Queue#queue.messages
+    ]),
+      atlasd:change_workers_count(State#state.task, 1);
+    true -> ok
+  end,
+
+  if
+    Estimated_time > State#state.minutes_to_add_consumers ->
+    ?DBG("Estimate time ~p (more than ~p minutes), consumers must be added ~n", [
+      Estimated_time, State#state.minutes_to_add_consumers
+    ]),
+    atlasd:increase_workers(State#state.task);
+    true -> ok
+  end,
+
+  ?DBG("--------------------------------------------------"),
+  ?DBG("Publish rate: ~p/s ~n", [Queue#queue.publish_rate]),
+  ?DBG("Ack rate: ~p/s ~n", [Queue#queue.ack_rate]),
+  ?DBG("Messages count: ~p ~n", [Queue#queue.messages]),
+  ?DBG("Consumers count: ~p ~n", [Queue#queue.consumers]),
+  ?DBG("--------------------------------------------------"),
+  ?DBG("Estimated time: ~p minutes ~n", [Estimated_time]),
+  ?DBG("--------------------------------------------------"),
+  ok;
+
+process_queue(Queue, State) when Queue == false ->
+  ?DBG("Queue proccess failed ~p", [State]),
+  failed.
