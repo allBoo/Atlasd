@@ -4,9 +4,9 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created : 11. Дек. 2015 16:36
+%%% Created : 14. Дек. 2015 18:43
 %%%-------------------------------------------------------------------
--module(balancer).
+-module(statistics).
 -author("alex").
 
 -behaviour(gen_server).
@@ -14,7 +14,11 @@
 
 %% API
 -export([
-  start_link/0
+  start_link/0,
+  worker_state/2,
+  forget/1,
+  forget/2,
+  forget/3
 ]).
 
 %% gen_server callbacks
@@ -26,9 +30,20 @@
   code_change/3]).
 
 -define(SERVER, ?MODULE).
+-define(STAT_LENGTH, 100).
 
--record(state, {}).
+-record(state, {
+  nodes = #{},
+  workers = #{},
+  avg_workers = #{}
+}).
 
+-record(avg_worker, {
+  cpu = [] :: [],
+  mem = [] :: [],
+  avg_cpu = 0.0 :: float(),
+  avg_mem = 0 :: integer()
+}).
 
 %%%===================================================================
 %%% API
@@ -44,6 +59,33 @@
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Notification about worker state
+%%
+%% @end
+%%--------------------------------------------------------------------
+worker_state(Node, WorkerState) when is_atom(Node), is_record(WorkerState, worker_state) ->
+  gen_server:cast(?SERVER, {worker_state, {Node, WorkerState}}).
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Remove worker statistics
+%%
+%% @end
+%%--------------------------------------------------------------------
+forget(Node) ->
+  gen_server:cast(?SERVER, {forget, {Node}}).
+
+forget(Node, Worker) ->
+  gen_server:cast(?SERVER, {forget, {Node, Worker}}).
+
+forget(Node, Worker, Pid) ->
+  gen_server:cast(?SERVER, {forget, {Node, Worker, Pid}}).
 
 
 %%%===================================================================
@@ -96,6 +138,53 @@ handle_call(_Request, _From, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
+
+%% information about worker state
+handle_cast({worker_state, {Node, WorkerState}}, State) ->
+  %?DBG("Recieve worker state ~p on node ~p", [WorkerState, Node]),
+
+  Workers = nested:put([Node, WorkerState#worker_state.name, WorkerState#worker_state.pid], WorkerState, State#state.workers),
+  WorkerStat = nested:get([WorkerState#worker_state.name], State#state.avg_workers, #avg_worker{}),
+
+  CpuStat = if
+              length(WorkerStat#avg_worker.cpu) > ?STAT_LENGTH ->
+                lists:nthtail(length(WorkerStat#avg_worker.cpu) - ?STAT_LENGTH, WorkerStat#avg_worker.cpu);
+              true -> WorkerStat#avg_worker.cpu
+            end ++ [WorkerState#worker_state.cpu],
+  AvgCpu = percentile(CpuStat, 0.9),
+
+  MemStat = if
+              length(WorkerStat#avg_worker.mem) > ?STAT_LENGTH ->
+                lists:nthtail(length(WorkerStat#avg_worker.mem) - ?STAT_LENGTH, WorkerStat#avg_worker.mem);
+              true -> WorkerStat#avg_worker.mem
+            end ++ [WorkerState#worker_state.memory],
+  AvgMem = percentile(MemStat, 0.9),
+
+  AvgWorkersStat = nested:put(
+    [WorkerState#worker_state.name],
+    WorkerStat#avg_worker{cpu = CpuStat, avg_cpu = AvgCpu, mem = MemStat, avg_mem = AvgMem},
+    State#state.avg_workers),
+
+  ?DBG("Workers Stat ~p", [Workers]),
+  ?DBG("Avg Stat ~p", [AvgWorkersStat]),
+
+  {noreply, State#state{workers = Workers, avg_workers = AvgWorkersStat}};
+
+
+%% remove staticstics
+handle_cast({forget, {Node}}, State) ->
+  Nodes = nested:remove([Node], State#state.nodes),
+  Workers = nested:remove([Node], State#state.workers),
+  {noreply, State#state{nodes = Nodes, workers = Workers}};
+
+handle_cast({forget, {Node, Worker}}, State) ->
+  Workers = nested:remove([Node, Worker], State#state.workers),
+  {noreply, State#state{workers = Workers}};
+
+handle_cast({forget, {Node, Worker, Pid}}, State) ->
+  Workers = nested:remove([Node, Worker, Pid], State#state.workers),
+  {noreply, State#state{workers = Workers}};
+
 
 %% handle any request
 handle_cast(_Request, State) ->
@@ -151,3 +240,45 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+%%
+%% @doc erlang module to calculate percentile
+%%
+%% @author Rodolphe Quiedeville <rodolphe@quiedeville.org>
+%%   [http://rodolphe.quiedeville.org]
+%%
+%% @copyright 2013 Rodolphe Quiedeville
+%% @end
+percentile(L, P)->
+  K = (length(L) - 1) * P,
+  F = floor(K),
+  C = ceiling(K),
+  final(lists:sort(L),F,C,K).
+
+final(L,F,C,K) when (F == C)->
+  lists:nth(trunc(K) + 1,L);
+final(L,F,C,K) ->
+  pos(L,F,C,K) + pos(L,C,K,F).
+
+pos(L,A,B,C)->
+  lists:nth(trunc(A) + 1,L) * (B - C).
+
+%% @doc http://schemecookbook.org/Erlang/NumberRounding
+floor(X) ->
+  T = erlang:trunc(X),
+  case (X - T) of
+    Neg when Neg < 0 -> T - 1;
+    Pos when Pos > 0 -> T;
+    _ -> T
+  end.
+
+%% @doc http://schemecookbook.org/Erlang/NumberRounding
+ceiling(X) ->
+  T = erlang:trunc(X),
+  case (X - T) of
+    Neg when Neg < 0 ->
+      T;
+    Pos when Pos > 0 -> T + 1;
+    _ -> T
+  end.
+

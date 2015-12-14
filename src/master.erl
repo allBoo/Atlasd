@@ -149,6 +149,7 @@ handle_cast({worker_started, {Node, Pid, Name}}, State) when State#state.role ==
 handle_cast({worker_stoped, {Node, Pid, Name}}, State) when State#state.role == master,
                                                             is_atom(Node), is_pid(Pid), is_atom(Name) ->
   RuningWorkers = State#state.workers -- [{Node, Pid, Name}],
+  statistics:forget(Node, Name, Pid),
   ?DBG("Worker ~p[~p] stoped at node ~p", [Name, Pid, Node]),
   ?DBG("RuningWorkers ~p", [RuningWorkers]),
   {noreply, State#state{workers = RuningWorkers}, rebalance_after(State#state.rebalanced)};
@@ -187,7 +188,7 @@ handle_cast({decrease_workers, WorkerName}, State) when State#state.role == mast
 
 %% Recieve notifications
 handle_cast({notify_state, Node, {worker_state, WorkerState}}, State) when State#state.role == master, is_record(WorkerState, worker_state) ->
-  balancer:worker_state(Node, WorkerState),
+  statistics:worker_state(Node, WorkerState),
   {noreply, State};
 
 
@@ -233,6 +234,7 @@ handle_info({_From, {node, _NodeStatus, _Node}}, State) when State#state.role ==
 handle_info({_From, {node, down, Node}}, State) when State#state.role == slave,
                                                      State#state.master_node == Node ->
   ?DBG("Master node ~p down, try to become master", [Node]),
+  statistics:forget(Node),
   {noreply, try_become_master(State)};
 
 
@@ -242,6 +244,7 @@ handle_info({_From, {node, up, Node}}, State) when State#state.role == master ->
 
 
 handle_info({_From, {node, down, Node}}, State) when State#state.role == master ->
+  statistics:forget(Node),
   case lists:member(Node, State#state.worker_nodes) of
     true ->
       WorkerNodes = lists:delete(Node, State#state.worker_nodes),
