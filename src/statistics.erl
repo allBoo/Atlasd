@@ -16,9 +16,13 @@
 -export([
   start_link/0,
   worker_state/2,
+  os_state/2,
   forget/1,
   forget/2,
-  forget/3
+  forget/3,
+
+  get_nodes_stat/1,
+  get_worker_avg_stat/1
 ]).
 
 %% gen_server callbacks
@@ -36,13 +40,6 @@
   nodes = #{},
   workers = #{},
   avg_workers = #{}
-}).
-
--record(avg_worker, {
-  cpu = [] :: [],
-  mem = [] :: [],
-  avg_cpu = 0.0 :: float(),
-  avg_mem = 0 :: integer()
 }).
 
 %%%===================================================================
@@ -74,6 +71,16 @@ worker_state(Node, WorkerState) when is_atom(Node), is_record(WorkerState, worke
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Notification about OS state
+%%
+%% @end
+%%--------------------------------------------------------------------
+os_state(Node, OsState) when is_atom(Node), is_record(OsState, os_state) ->
+  gen_server:cast(?SERVER, {os_state, {Node, OsState}}).
+
+
+%%--------------------------------------------------------------------
+%% @doc
 %% Remove worker statistics
 %%
 %% @end
@@ -86,6 +93,26 @@ forget(Node, Worker) ->
 
 forget(Node, Worker, Pid) ->
   gen_server:cast(?SERVER, {forget, {Node, Worker, Pid}}).
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Return nodes load statistics
+%%
+%% @end
+%%--------------------------------------------------------------------
+get_nodes_stat(Nodes) when is_list(Nodes) ->
+  gen_server:call(?SERVER, {get_nodes_stat, Nodes}).
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Return worker avg load statistics
+%%
+%% @end
+%%--------------------------------------------------------------------
+get_worker_avg_stat(Worker) when is_atom(Worker) ->
+  gen_server:call(?SERVER, {get_worker_avg_stat, Worker}).
 
 
 %%%===================================================================
@@ -124,6 +151,24 @@ init([]) ->
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
   {stop, Reason :: term(), NewState :: #state{}}).
+
+handle_call({get_nodes_stat, Nodes}, _From, State) ->
+  Result = maps:filter(fun(Node, _NodeStat) ->
+                          lists:member(Node, Nodes)
+                        end, State#state.nodes),
+  {reply, Result, State};
+
+
+handle_call({get_node_stat, Node}, _From, State) ->
+  Result = nested:get([Node], State#state.nodes, #os_state{}),
+  {reply, Result, State};
+
+
+handle_call({get_worker_avg_stat, Worker}, _From, State) ->
+  Result = nested:get([Worker], State#state.avg_workers, #avg_worker{}),
+  {reply, Result, State};
+
+
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
@@ -165,10 +210,16 @@ handle_cast({worker_state, {Node, WorkerState}}, State) ->
     WorkerStat#avg_worker{cpu = CpuStat, avg_cpu = AvgCpu, mem = MemStat, avg_mem = AvgMem},
     State#state.avg_workers),
 
-  ?DBG("Workers Stat ~p", [Workers]),
-  ?DBG("Avg Stat ~p", [AvgWorkersStat]),
+  %?DBG("Workers Stat ~p", [Workers]),
+  %?DBG("Avg Stat ~p", [AvgWorkersStat]),
 
   {noreply, State#state{workers = Workers, avg_workers = AvgWorkersStat}};
+
+
+%% information about node OS state
+handle_cast({os_state, {Node, OsState}}, State) ->
+  Nodes = nested:put([Node], OsState, State#state.nodes),
+  {noreply, State#state{nodes = Nodes}};
 
 
 %% remove staticstics

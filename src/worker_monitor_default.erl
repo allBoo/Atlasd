@@ -123,7 +123,7 @@ monitor(_Event, State) ->
     proc = State#state.worker_proc,
     memory = get_mem_usage(State#state.worker_proc),
     cpu = get_cpu_usage(State#state.worker_proc),
-    time = timer:now_diff(erlang:timestamp(), State#state.time)
+    uptime = timer:now_diff(erlang:timestamp(), State#state.time)
   },
   atlasd:notify_state(worker_state, WorkerState),
 

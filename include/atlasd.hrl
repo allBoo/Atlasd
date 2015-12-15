@@ -48,10 +48,34 @@
 }).
 
 -record(worker_state, {
-  name :: atom(),
-  pid :: pid(),
-  proc :: integer(),
-  memory :: integer(),
-  cpu :: float(),
-  time :: integer()
+  name         :: atom(),
+  pid          :: pid(),
+  proc         :: integer(),
+  memory = 0   :: integer(),
+  cpu    = 0.0 :: float(),
+  uptime = 0   :: integer()
 }).
+
+-record(avg_worker, {
+  cpu = [] :: [],
+  mem = [] :: [],
+  avg_cpu = 0.0 :: float(),
+  avg_mem = 0 :: integer()
+}).
+
+-record(cpu_info, {
+  load_average = 0.0 :: float(),
+  per_cpu = []
+}).
+
+-record(memory_info, {
+  allocated_memory = 0 :: integer(),
+  free_memory      = 0 :: integer()
+}).
+
+-record(os_state, {
+  memory_info = #memory_info{} :: #memory_info{},
+  cpu_info    = #cpu_info{}    :: #cpu_info{},
+  overloaded  = false          :: boolean()
+}).
+
