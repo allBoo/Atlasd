@@ -14,13 +14,14 @@
 
 %% API
 -export([
-  start_link/0,
-  mode/0
+  start_link/1,
+  mode/0,
+  get_memory_info/0
 ]).
 
 %% gen_fsm callbacks
 -export([init/1,
-  state_name/2,
+  monitor/2,
   state_name/3,
   handle_event/3,
   handle_sync_event/4,
@@ -30,7 +31,13 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {}).
+-record(state, {
+  os_state = #os_state{},
+  mem_watermark
+}).
+
+
+
 
 %%%===================================================================
 %%% API
@@ -44,9 +51,9 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link() -> {ok, pid()} | ignore | {error, Reason :: term()}).
-start_link() ->
-  gen_fsm:start_link({local, ?SERVER}, ?MODULE, [], []).
+-spec(start_link(Config :: []) -> {ok, pid()} | ignore | {error, Reason :: term()}).
+start_link(Config) ->
+  gen_fsm:start_link(?MODULE, [Config], []).
 
 
 mode() -> node.
@@ -68,8 +75,11 @@ mode() -> node.
   {ok, StateName :: atom(), StateData :: #state{}} |
   {ok, StateName :: atom(), StateData :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([]) ->
-  {ok, state_name, #state{}}.
+init([Config]) ->
+  [{_, Mem_watermark}] = Config,
+  State = #state{mem_watermark = Mem_watermark},
+  ?DBG("Started os monitor ~w", [Config]),
+  {ok, monitor, State, 1000}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -82,13 +92,27 @@ init([]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(state_name(Event :: term(), State :: #state{}) ->
+-spec(monitor(Event :: term(), State :: #state{}) ->
   {next_state, NextStateName :: atom(), NextState :: #state{}} |
   {next_state, NextStateName :: atom(), NextState :: #state{},
     timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
-state_name(_Event, State) ->
-  {next_state, state_name, State}.
+monitor(_Event, State) ->
+  Memory_info = get_memory_info(),
+
+  Os_state = #os_state{
+    memory_info = Memory_info,
+    cpu_info = #cpu_info{
+      load_average = cpu_sup:avg1(),
+      per_cpu = cpu_sup:util([per_cpu])
+    },
+    overloaded = State#state.mem_watermark < Memory_info#memory_info.allocated_memory/
+      ((Memory_info#memory_info.allocated_memory + Memory_info#memory_info.free_memory)/100)
+  },
+
+  atlasd:notify_state(os_state, Os_state),
+  ?DBG("State ~w", [State#state{os_state = Os_state}]),
+  {next_state, monitor, State#state{os_state = Os_state}, 5000}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -206,3 +230,17 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+
+get_memory_info() ->
+  System_memory_data =  memsup:get_system_memory_data(),
+
+  Free_memory = proplists:get_value(free_memory, System_memory_data) +
+    proplists:get_value(buffered_memory, System_memory_data) +
+    proplists:get_value(cached_memory, System_memory_data),
+
+  Allocated_memory = proplists:get_value(system_total_memory, System_memory_data) - Free_memory,
+
+  #memory_info{
+    allocated_memory = Allocated_memory,
+    free_memory = Free_memory}.

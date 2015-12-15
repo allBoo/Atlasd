@@ -149,6 +149,7 @@ handle_cast({worker_started, {Node, Pid, Name}}, State) when State#state.role ==
 handle_cast({worker_stoped, {Node, Pid, Name}}, State) when State#state.role == master,
                                                             is_atom(Node), is_pid(Pid), is_atom(Name) ->
   RuningWorkers = State#state.workers -- [{Node, Pid, Name}],
+  statistics:forget(Node, Name, Pid),
   ?DBG("Worker ~p[~p] stoped at node ~p", [Name, Pid, Node]),
   ?DBG("RuningWorkers ~p", [RuningWorkers]),
   {noreply, State#state{workers = RuningWorkers}, rebalance_after(State#state.rebalanced)};
@@ -183,6 +184,16 @@ handle_cast({decrease_workers, WorkerName}, State) when State#state.role == mast
   WorkerConfig = change_worker_procs_count(State#state.worker_config, WorkerName, InstancesCount),
 
   {noreply, State#state{worker_config = WorkerConfig}, rebalance_after(State#state.rebalanced)};
+
+
+%% Recieve notifications
+handle_cast({notify_state, Node, {worker_state, WorkerState}}, State) when State#state.role == master, is_record(WorkerState, worker_state) ->
+  statistics:worker_state(Node, WorkerState),
+  {noreply, State};
+
+handle_cast({notify_state, Node, {os_state, OsState}}, State) when State#state.role, is_record(OsState, os_state) == master ->
+  statistics:os_state(Node, OsState),
+  {noreply, State};
 
 
 %% REBALANCE cluster state
@@ -227,6 +238,7 @@ handle_info({_From, {node, _NodeStatus, _Node}}, State) when State#state.role ==
 handle_info({_From, {node, down, Node}}, State) when State#state.role == slave,
                                                      State#state.master_node == Node ->
   ?DBG("Master node ~p down, try to become master", [Node]),
+  statistics:forget(Node),
   {noreply, try_become_master(State)};
 
 
@@ -236,6 +248,7 @@ handle_info({_From, {node, up, Node}}, State) when State#state.role == master ->
 
 
 handle_info({_From, {node, down, Node}}, State) when State#state.role == master ->
+  statistics:forget(Node),
   case lists:member(Node, State#state.worker_nodes) of
     true ->
       WorkerNodes = lists:delete(Node, State#state.worker_nodes),
@@ -421,66 +434,12 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) ->
 
 %% run number of new workers
 run_workers(Count, WorkerCfg, Instances, Nodes) ->
-  ProcsConfig = WorkerCfg#worker.procs,
-
-  %% nodes filtering
-  AvailableNodes = case WorkerCfg#worker.nodes of
-                     any -> Nodes;
-
-                     %% filter accept nodes throung availiable nodes
-                     Accept when is_list(Accept) ->
-                       lists:filtermap(fun(Node) ->
-                         [_, NodeHost] = string:tokens(atom_to_list(Node), "@"),
-                         case lists:member(NodeHost, Accept) of
-                           true -> {true, Node};
-                           _ -> false
-                         end
-                       end, Nodes);
-
-                     _ -> []
-                   end,
-
-  %% each_node filtering
-  FreeNodes = if
-                ProcsConfig#worker_procs.each_node =/= false ->
-                  %% search nodes where we are not running
-                  Running = [InstanceNode || {InstanceNode, _, _} <- Instances],
-                  NotRunning = lists:filter(fun(Node) ->
-                    not lists:member(Node, Running)
-                  end, AvailableNodes),
-                  %% if we are runing on all nodes than return them all
-                  case NotRunning of
-                    [] -> AvailableNodes;
-                    N  -> N
-                  end;
-
-                true -> AvailableNodes
-              end,
-
-  %% max_per_node filtering
-  RunAtNodes = if
-                 ProcsConfig#worker_procs.max_per_node =/= infinity ->
-                   %% calculate count of instances for each node
-                   %% and filter those having more than max_per_node
-                   lists:filter(fun(Node) ->
-                     RunningCount = lists:foldl(fun({InstanceNode, _, _}, Acc) ->
-                                                   case InstanceNode == Node of
-                                                     true -> Acc + 1;
-                                                     _ -> Acc
-                                                   end
-                                                 end, 0, Instances),
-
-                     RunningCount < ProcsConfig#worker_procs.max_per_node
-                   end, FreeNodes);
-
-
-                 true -> FreeNodes
-               end,
+  AvailableNodes = master_utils:filter_nodes(WorkerCfg, Instances, Nodes),
 
   if
-    length(RunAtNodes) > 0 ->
-      ?DBG("Run ~p new workers ~p on ~p", [Count, WorkerCfg#worker.name, RunAtNodes]),
-      run_worker_at(WorkerCfg, Count, RunAtNodes);
+    length(AvailableNodes) > 0 ->
+      ?DBG("Run ~p new workers ~p on ~p", [Count, WorkerCfg#worker.name, AvailableNodes]),
+      run_worker_at(WorkerCfg, Count, AvailableNodes);
 
     true ->
       ?LOG("Can not find proper nodes for worker ~p", [WorkerCfg#worker.name]),
