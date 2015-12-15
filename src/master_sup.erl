@@ -69,7 +69,7 @@ start_monitors() ->
   ignore |
   {error, Reason :: term()}).
 init([]) ->
-  {ok, { {rest_for_one, 5, 10}, [?CHILD(master)]} }.
+  {ok, { {rest_for_one, 5, 10}, [?CHILD(master), ?CHILD(statistics)]} }.
 
 %%%===================================================================
 %%% Internal functions
