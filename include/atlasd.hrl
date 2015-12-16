@@ -63,7 +63,6 @@
   avg_mem = 0 :: integer()
 }).
 
-
 -record(cpu_info, {
   load_average = 0.0 :: float(),
   per_cpu = []
@@ -80,8 +79,3 @@
   overloaded  = false          :: boolean()
 }).
 
-
--record(os_state, {
-  memory_info,
-  cpu_info
-}).
