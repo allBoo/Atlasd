@@ -14,11 +14,20 @@
 %%% ====================================================================
 -include_lib("log.hrl").
 -include_lib("error.hrl").
+-include_lib("stdlib/include/qlc.hrl").
 
 %% Helper macro for declaring children of supervisor
 -define(CHILD(I), {I, {I, start_link, []}, permanent, 5000, worker, [I]}).
 -define(CHILD(I, A), {I, {I, start_link, A}, permanent, 5000, worker, [I]}).
 -define(CHILD_SUP(I), {I, {I, start_link, []}, permanent, infinity, supervisor, [I]}).
+
+%%% ====================================================================
+%%% Env spec
+%%% ====================================================================
+-record(env, {
+  key,
+  value
+}).
 
 %%% ====================================================================
 %%% Worker spec
@@ -44,9 +53,14 @@
   restart  = simple           :: simple | disallow | prestart,
   max_mem  = infinity         :: infinity | string(),
   procs    = #worker_procs{},
-  monitor  = []               :: [#worker_monitor{}]
+  monitor  = []               :: [#worker_monitor{}],
+  enabled  = true             :: boolean()
 }).
 
+
+%%% ====================================================================
+%%% OS monitor spec
+%%% ====================================================================
 -record(worker_state, {
   name         :: atom(),
   pid          :: pid(),

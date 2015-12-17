@@ -19,7 +19,8 @@
   get/2,
   get/3,
   workers/0,
-  worker/1
+  worker/1,
+  parse_workers/1
 ]).
 
 %% gen_server callbacks
@@ -49,9 +50,13 @@
 start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+get(workers) -> workers();
+get({worker, Key}) -> worker(Key);
 get(Key) ->
   gen_server:call(?MODULE, {get, Key}).
 
+get(workers, _) -> workers();
+get({worker, Key}, _) -> worker(Key);
 get(Key, Default) ->
   gen_server:call(?MODULE, {get, Key, Default}).
 
@@ -91,12 +96,12 @@ get(Key, Default, boolean) ->
 
 
 workers() ->
-  parse_workers(config:get("workers")).
+  get_runtime(get_workers).
 
 worker(WorkerName) when is_list(WorkerName) ->
   worker(list_to_atom(WorkerName));
 worker(WorkerName) when is_atom(WorkerName) ->
-  lists:keyfind(WorkerName, 2, workers()).
+  get_runtime({get_worker, WorkerName}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -136,11 +141,11 @@ init([]) ->
   {stop, Reason :: term(), NewState :: #state{}}).
 
 handle_call({get, Key}, _From, State) ->
-  Tokens = string:tokens(Key, "."),
+  Tokens = tokenize_key(Key),
   {reply, get_key_value(Tokens, State#state.config), State};
 
 handle_call({get, Key, Default}, _From, State) ->
-  Tokens = string:tokens(Key, "."),
+  Tokens = tokenize_key(Key),
   Result = case get_key_value(Tokens, State#state.config) of
     undefined ->
       Default;
@@ -250,6 +255,21 @@ get_key_value([Key | Tokens], Config) when is_list(Tokens) ->
       get_key_value(Tokens, Values);
     _ ->
       undefined
+  end.
+
+
+tokenize_key(Key) when is_atom(Key) ->
+  tokenize_key(atom_to_list(Key));
+tokenize_key(Key) when is_list(Key) ->
+  string:tokens(Key, ".").
+
+
+get_runtime(Request) ->
+  case whereis(runtime_config) of
+    Pid when is_pid(Pid) ->
+      gen_server:call(Pid, Request);
+    _ ->
+      atlasd:get_runtime(Request)
   end.
 
 

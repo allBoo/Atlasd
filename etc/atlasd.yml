@@ -10,13 +10,16 @@ cluster:
 
 node:
   master: true
-  worker: true
+  worker: false
 
 #################################### Paths ####################################
 
 path:
 # Path to directory containing configuration (this file and logging.yml):
   conf: /apps/atlasd/etc/
+
+# Path to data files
+  data: /tmp/atlasd
 
 # Path to temporary files:
   work: /tmp
@@ -36,7 +39,7 @@ http:
   enabled: true
 
 # Set both 'bind_host' and 'publish_host':
-  host: 127.0.0.1
+  host: 0.0.0.0
 
 # Set a custom port to listen for HTTP traffic:
   port: 9900
@@ -47,53 +50,21 @@ monitors:
   os:
     mem_watermark: 80
 
-  rabbitmq:
-    mode: api
-    host: "192.168.2.5"
-    user: guest
-    pass: guest
-
-    monitors:
-      task-listen-low:
-        exchange: parsley
-        queue: "ds.conveyer.task.low"
-
-      task-listen-middle:
-        exchange: parsley
-        queue: "ds.conveyer.task.middle"
-
-      task-listen-high:
-        exchange: parsley
-        queue: "ds.conveyer.task.high"
-
-
-############################## Workers ###############################
-workers:
-  task-listen-low:
-    command: "/apps/atlasd/priv/command1.sh"
-    priority: 100
-    nodes: "192.168.2.1"
-    restart: disallow
-    procs:
-      allways: 1
-
-#  task-listen-middle:
-#    command: "/apps/atlasd/priv/command2.sh"
-#    priority: 100
-#    nodes: any
-#    restart: simple
-#    max_mem: "100M"
-#    procs:
-#      min: 1
-#      max: 15
-#      max_per_node: 1
-
-  task-listen-high:
-    command: "/apps/atlasd/priv/command3.sh"
-    priority: 1
-    nodes: ["192.168.2.1", "192.168.2.5"]
-    restart: prestart
-    max_mem: "100M"
-    procs:
-      min: 1
-      each_node: 1
+  #rabbitmq:
+  #  mode: api
+  #  host: "192.168.2.5"
+  #  user: guest
+  #  pass: guest
+  #
+  #  monitors:
+  #    task-listen-low:
+  #      exchange: parsley
+  #      queue: "ds.conveyer.task.low"
+  #
+  #    task-listen-middle:
+  #      exchange: parsley
+  #      queue: "ds.conveyer.task.middle"
+  #
+  #    task-listen-high:
+  #      exchange: parsley
+  #      queue: "ds.conveyer.task.high"

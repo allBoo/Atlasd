@@ -259,12 +259,13 @@ process_queue(Queue, State) when Queue /= false ->
 
   if
     Queue#queue.messages =:= 0, Queue#queue.consumers =/= 0, Queue#queue.publish_rate =:= 0.0 ->
-    ?DBG("~w messages, ~w consumers, consumers must be killed ~n", [
-      Queue#queue.messages,
-      Queue#queue.consumers
-    ]),
-    atlasd:change_workers_count(State#state.task, 0);
-    Queue#queue.messages =:= 0, Queue#queue.consumers =/= 0, Queue#queue.publish_rate =/= 0.0 ->
+      ?DBG("~w messages, ~w consumers, consumers must be killed ~n", [
+        Queue#queue.messages,
+        Queue#queue.consumers
+      ]),
+      atlasd:change_workers_count(State#state.task, 0);
+
+    Queue#queue.messages =:= 0, Queue#queue.consumers > 1, Queue#queue.publish_rate =/= 0.0 ->
       ?DBG("~w messages, ~w consumers, publish rate ~w, consumers must be decreased ~n", [
         Queue#queue.messages,
         Queue#queue.consumers,

@@ -53,7 +53,7 @@
 %%--------------------------------------------------------------------
 -spec(start_link(Config :: []) -> {ok, pid()} | ignore | {error, Reason :: term()}).
 start_link(Config) ->
-  gen_fsm:start_link(?MODULE, [Config], []).
+  gen_fsm:start_link({local, ?MODULE}, ?MODULE, [Config], []).
 
 
 mode() -> node.
@@ -103,15 +103,16 @@ monitor(_Event, State) ->
   Os_state = #os_state{
     memory_info = Memory_info,
     cpu_info = #cpu_info{
-      load_average = cpu_sup:avg1(),
+      load_average = cpu_sup:avg1() / 256,
       per_cpu = cpu_sup:util([per_cpu])
     },
     overloaded = State#state.mem_watermark < Memory_info#memory_info.allocated_memory/
       ((Memory_info#memory_info.allocated_memory + Memory_info#memory_info.free_memory)/100)
   },
 
+  %?DBG("Send OS State ~p", [Os_state]),
   atlasd:notify_state(os_state, Os_state),
-  ?DBG("State ~w", [State#state{os_state = Os_state}]),
+
   {next_state, monitor, State#state{os_state = Os_state}, 5000}.
 
 %%--------------------------------------------------------------------
