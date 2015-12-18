@@ -28,6 +28,16 @@ start(_StartType, _StartArgs) ->
     _ -> ok
   end,
 
+  %% start http-server
+  {ok, IPTupled}  = inet_parse:address(config:get("http.host")),
+  HttpAttr = [
+    {callback, api},
+    {ip, IPTupled},
+    {port, config:get("http.port")},
+    {min_acceptors, 5} % стандартно там 20, если что
+  ],
+  config:get("http.enabled") andalso supervisor:start_child(atlasd_sup, ?CHILD(elli, [HttpAttr])),
+
   cluster:connect(),
 
   AppSup.
