@@ -13,7 +13,11 @@
 -include_lib("atlasd.hrl").
 
 %% API
--export([start_link/0, start_monitors/0]).
+-export([
+  start_link/0,
+  start_monitors/0,
+  start_child/1
+]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -46,6 +50,16 @@ start_monitors() ->
   end,
 
   supervisor:start_child(?MODULE, ?CHILD_SUP(master_monitors_sup)).
+
+
+start_child(ChildSpec) ->
+  case supervisor:start_child(?MODULE, ChildSpec) of
+    {error, Reason} ->
+      ?LOG("Can not start child process with reason ~p", [Reason]),
+      ?THROW_ERROR(?ERROR_SYSTEM_ERROR);
+    _ -> ok
+  end.
+
 
 %%%===================================================================
 %%% Supervisor callbacks

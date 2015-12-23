@@ -5,6 +5,6 @@ while [ : ]
 do
     let cntr=cntr+1
     echo "Abracadabra! hello number" $cntr
-    sleep 5
+    sleep 60
 done
 

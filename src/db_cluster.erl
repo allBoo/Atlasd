@@ -4,9 +4,9 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created : 14. Дек. 2015 18:43
+%%% Created : 18. Дек. 2015 16:36
 %%%-------------------------------------------------------------------
--module(statistics).
+-module(db_cluster).
 -author("alex").
 
 -behaviour(gen_server).
@@ -15,15 +15,9 @@
 %% API
 -export([
   start_link/0,
-  worker_state/2,
-  os_state/2,
-  forget/1,
-  forget/2,
-  forget/3,
-
-  get_nodes_stat/1,
-  get_worker_avg_stat/1,
-  get_workers/1
+  start_master/0,
+  start_slave/0,
+  add_nodes/1
 ]).
 
 %% gen_server callbacks
@@ -35,12 +29,10 @@
   code_change/3]).
 
 -define(SERVER, ?MODULE).
--define(STAT_LENGTH, 100).
 
 -record(state, {
-  nodes = #{},
-  workers = #{},
-  avg_workers = #{}
+  role = slave :: master | slave,
+  nodes = []
 }).
 
 %%%===================================================================
@@ -59,64 +51,33 @@ start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 
-
 %%--------------------------------------------------------------------
 %% @doc
-%% Notification about worker state
+%% Become as a master
 %%
 %% @end
 %%--------------------------------------------------------------------
-worker_state(Node, WorkerState) when is_atom(Node), is_record(WorkerState, worker_state) ->
-  gen_server:cast(?SERVER, {worker_state, {Node, WorkerState}}).
-
+start_master() ->
+  gen_server:call(?SERVER, master).
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Notification about OS state
+%% Become as a slave
 %%
 %% @end
 %%--------------------------------------------------------------------
-os_state(Node, OsState) when is_atom(Node), is_record(OsState, os_state) ->
-  gen_server:cast(?SERVER, {os_state, {Node, OsState}}).
+start_slave() ->
+  gen_server:call(?SERVER, slave).
 
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Remove worker statistics
+%% Add new nodes to the cluster
 %%
 %% @end
 %%--------------------------------------------------------------------
-forget(Node) ->
-  gen_server:cast(?SERVER, {forget, {Node}}).
-
-forget(Node, Worker) ->
-  gen_server:cast(?SERVER, {forget, {Node, Worker}}).
-
-forget(Node, Worker, Pid) ->
-  gen_server:cast(?SERVER, {forget, {Node, Worker, Pid}}).
-
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Return nodes load statistics
-%%
-%% @end
-%%--------------------------------------------------------------------
-get_nodes_stat(Nodes) when is_list(Nodes) ->
-  gen_server:call(?SERVER, {get_nodes_stat, Nodes}).
-
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Return worker avg load statistics
-%%
-%% @end
-%%--------------------------------------------------------------------
-get_worker_avg_stat(Worker) when is_atom(Worker) ->
-  gen_server:call(?SERVER, {get_worker_avg_stat, Worker}).
-
-get_workers(Node)->
-  gen_server:call(?SERVER, {get_workers, Node}).
+add_nodes(Nodes) ->
+  gen_server:cast(?SERVER, {add_nodes, Nodes}).
 
 
 %%%===================================================================
@@ -138,6 +99,8 @@ get_workers(Node)->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([]) ->
+  start_database(),
+
   {ok, #state{}}.
 
 %%--------------------------------------------------------------------
@@ -156,26 +119,23 @@ init([]) ->
   {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
   {stop, Reason :: term(), NewState :: #state{}}).
 
-handle_call({get_nodes_stat, Nodes}, _From, State) ->
-  Result = maps:filter(fun(Node, _NodeStat) ->
-                          lists:member(Node, Nodes)
-                        end, State#state.nodes),
+handle_call(master, _From, State) when State#state.role == slave ->
+  db_schema:ensure_schema(),
+  mnesia:set_master_nodes([node()]),
+  {reply, ok, State#state{nodes = mnesia:system_info(running_db_nodes), role = master}};
+
+
+handle_call(slave, _From, State) when State#state.role == master ->
+  {reply, ok, State#state{role = slave}};
+
+
+%% delete database
+handle_call(reset_database, _From, State) when State#state.role == slave ->
+  db_schema:drop_schema(),
+  Result = start_database(),
+
   {reply, Result, State};
 
-
-handle_call({get_node_stat, Node}, _From, State) ->
-  Result = nested:get([Node], State#state.nodes, #os_state{}),
-  {reply, Result, State};
-
-
-handle_call({get_worker_avg_stat, Worker}, _From, State) ->
-  Result = nested:get([Worker], State#state.avg_workers, #avg_worker{}),
-  {reply, Result, State};
-
-
-handle_call({get_workers, Node}, _From, State) ->
-  Result = nested:get([Node], State#state.workers, []),
-  {reply, Result, State};
 
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
@@ -192,62 +152,11 @@ handle_call(_Request, _From, State) ->
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
 
-%% information about worker state
-handle_cast({worker_state, {Node, WorkerState}}, State) ->
-  %?DBG("Recieve worker state ~p on node ~p", [WorkerState, Node]),
-
-  Workers = nested:put([Node, WorkerState#worker_state.name, WorkerState#worker_state.pid], WorkerState, State#state.workers),
-  WorkerStat = nested:get([WorkerState#worker_state.name], State#state.avg_workers, #avg_worker{}),
-
-  CpuStat = if
-              length(WorkerStat#avg_worker.cpu) > ?STAT_LENGTH ->
-                lists:nthtail(length(WorkerStat#avg_worker.cpu) - ?STAT_LENGTH, WorkerStat#avg_worker.cpu);
-              true -> WorkerStat#avg_worker.cpu
-            end ++ [WorkerState#worker_state.cpu],
-  AvgCpu = percentile(CpuStat, 0.9),
-
-  MemStat = if
-              length(WorkerStat#avg_worker.mem) > ?STAT_LENGTH ->
-                lists:nthtail(length(WorkerStat#avg_worker.mem) - ?STAT_LENGTH, WorkerStat#avg_worker.mem);
-              true -> WorkerStat#avg_worker.mem
-            end ++ [WorkerState#worker_state.memory],
-  AvgMem = percentile(MemStat, 0.9),
-
-  AvgWorkersStat = nested:put(
-    [WorkerState#worker_state.name],
-    WorkerStat#avg_worker{cpu = CpuStat, avg_cpu = AvgCpu, mem = MemStat, avg_mem = AvgMem},
-    State#state.avg_workers),
-
-  %?DBG("Workers Stat ~p", [Workers]),
-  %?DBG("Avg Stat ~p", [AvgWorkersStat]),
-
-  {noreply, State#state{workers = Workers, avg_workers = AvgWorkersStat}};
+handle_cast({add_nodes, Nodes}, State) when State#state.role == master ->
+  DbNodes = do_add_nodes(Nodes),
+  {noreply, State#state{nodes = DbNodes}};
 
 
-%% information about node OS state
-handle_cast({os_state, {Node, OsState}}, State) ->
-  Nodes = nested:put([Node], OsState, State#state.nodes),
-
-  %?DBG("Nodes stat ~p", [Nodes]),
-  {noreply, State#state{nodes = Nodes}};
-
-
-%% remove statistics
-handle_cast({forget, {Node}}, State) ->
-  Nodes = nested:remove([Node], State#state.nodes),
-  Workers = nested:remove([Node], State#state.workers),
-  {noreply, State#state{nodes = Nodes, workers = Workers}};
-
-handle_cast({forget, {Node, Worker}}, State) ->
-  Workers = nested:remove([Node, Worker], State#state.workers),
-  {noreply, State#state{workers = Workers}};
-
-handle_cast({forget, {Node, Worker, Pid}}, State) ->
-  Workers = nested:remove([Node, Worker, Pid], State#state.workers),
-  {noreply, State#state{workers = Workers}};
-
-
-%% handle any request
 handle_cast(_Request, State) ->
   {noreply, State}.
 
@@ -302,44 +211,86 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-%%
-%% @doc erlang module to calculate percentile
-%%
-%% @author Rodolphe Quiedeville <rodolphe@quiedeville.org>
-%%   [http://rodolphe.quiedeville.org]
-%%
-%% @copyright 2013 Rodolphe Quiedeville
-%% @end
-percentile(L, P)->
-  K = (length(L) - 1) * P,
-  F = floor(K),
-  C = ceiling(K),
-  final(lists:sort(L),F,C,K).
+start_database() ->
+  DataPath = filename:absname(config:get("path.data", "/var/lib/atlasd", string)),
+  case filelib:ensure_dir(DataPath) of
+    ok ->
+      case filelib:is_dir(DataPath) of
+        true -> ok;
+        false ->
+          case file:make_dir(DataPath) of
+            ok -> ok;
+            {error, Reason} ->
+              ?LOG("Can not create data dir with reason ~p", [Reason]),
+              ?THROW_ERROR(?ERROR_DATA_PATH)
+          end
+      end;
+    {error, Reason} ->
+      ?LOG("Can not access data path with reason ~p", [Reason]),
+      ?THROW_ERROR(?ERROR_DATA_PATH)
+  end,
 
-final(L,F,C,K) when (F == C)->
-  lists:nth(trunc(K) + 1,L);
-final(L,F,C,K) ->
-  pos(L,F,C,K) + pos(L,C,K,F).
+  ok = mnesia:start([{dir, DataPath}]).
 
-pos(L,A,B,C)->
-  lists:nth(trunc(A) + 1,L) * (B - C).
 
-%% @doc http://schemecookbook.org/Erlang/NumberRounding
-floor(X) ->
-  T = erlang:trunc(X),
-  case (X - T) of
-    Neg when Neg < 0 -> T - 1;
-    Pos when Pos > 0 -> T;
-    _ -> T
+do_add_nodes([]) -> mnesia:system_info(running_db_nodes);
+do_add_nodes([Node | Tail]) ->
+  RunningNodes = mnesia:system_info(running_db_nodes),
+  case lists:member(Node, RunningNodes) of
+    true -> ok;
+    _ ->
+      try_to_add_node(Node)
+  end,
+  do_add_nodes(Tail).
+
+try_to_add_node(Node) ->
+  case mnesia:change_config(extra_db_nodes, [Node]) of
+    {ok, _} ->
+      ?DBG("New node ~p connected. Start to copy tables", [Node]),
+      copy_tables(Node);
+    _ ->
+      ?DBG("Node ~p has several DB schema. Reset it and create new one", [Node]),
+      gen_server:call({?MODULE, Node}, reset_database),
+      case mnesia:change_config(extra_db_nodes, [Node]) of
+        {ok, _} ->
+          %% make database persistent
+          mnesia:change_table_copy_type(schema, Node, disc_copies),
+
+          ?DBG("New node ~p connected successfully. Start to copy tables", [Node]),
+          copy_tables(Node);
+
+        Error ->
+          ?LOG("Error while connection to a new database with reason ~p", [Error]),
+          ?THROW_ERROR(?ERROR_CONNECT_DB)
+      end
   end.
 
-%% @doc http://schemecookbook.org/Erlang/NumberRounding
-ceiling(X) ->
-  T = erlang:trunc(X),
-  case (X - T) of
-    Neg when Neg < 0 ->
-      T;
-    Pos when Pos > 0 -> T + 1;
-    _ -> T
-  end.
+%% copy all tables
+copy_tables(ToNode) ->
+  copy_tables(ToNode, mnesia:system_info(tables)).
 
+copy_tables(_, []) -> ok;
+copy_tables(ToNode, [Table | Tables]) ->
+  %% change schema copy type at begin to ensure that node has disc
+  mnesia:change_table_copy_type(schema, ToNode, disc_copies),
+
+  Nodes = mnesia:table_info(Table, where_to_commit),
+  case lists:keyfind(node(), 1, Nodes) of
+    {_, Type} ->
+      %% if table already exists check copy type and change it if need
+      case lists:keyfind(ToNode, 1, Nodes) of
+        {ToNode, Type} ->
+          ?DBG("Table ~p on node ~p already has the same copy type ~p", [Table, ToNode, Type]);
+        {ToNode, AnotherType} ->
+          Result = mnesia:change_table_copy_type(Table, ToNode, Type),
+          ?DBG("Table ~p on node ~p has another copy type ~p. Change it to ~p with result ~p", [Table, ToNode, AnotherType, Type, Result]);
+        _ ->
+          Result = mnesia:add_table_copy(Table, ToNode, Type),
+          ?DBG("Add table ~p copy as ~p to node ~p with result ~p", [Table, Type, ToNode, Result])
+      end;
+
+    _ ->
+      ?DBG("Table ~p doesn`t exists on master node ~p", [Table, node()]),
+      ignore
+  end,
+  copy_tables(ToNode, Tables).

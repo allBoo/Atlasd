@@ -33,7 +33,6 @@ filter_nodes(Worker, Instances, Nodes) ->
 %%%===================================================================
 
 do_filter_nodes([F | Funs], {Worker, Instances, _Nodes} = Args) ->
-  ?DBG("CALL ~p WITH ARGS ~p", [F, Args]),
   case ?MODULE:F(Args) of
     {error, Error} -> {error, Error};
     [] -> [];

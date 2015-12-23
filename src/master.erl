@@ -84,19 +84,18 @@ rebalance() ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([]) ->
+  db_cluster:start_slave(),
   reg:bind(node),
   ok = global:sync(),
 
-  WorkerConfig = config:workers(),
-  ?DBG("workers ~p", [WorkerConfig]),
   case whereis_master() of
     undefined ->
       ?DBG("No master found. Wait for 15 secs to become as master", []),
-      {ok, #state{role = undefined, master = undefined, master_node = undefined, worker_config = WorkerConfig}, 1000};
+      {ok, #state{role = undefined, master = undefined, master_node = undefined}, 1000};
 
     {Master, MasterNode} ->
       ?DBG("Detected master ~p", [Master]),
-      {ok, #state{role = slave, master = Master, master_node = MasterNode, worker_config = WorkerConfig}}
+      {ok, #state{role = slave, master = Master, master_node = MasterNode}}
   end.
 
 
@@ -115,6 +114,10 @@ init([]) ->
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
   {stop, Reason :: term(), NewState :: #state{}}).
+
+handle_call({get_runtime, Request}, _From, State) when State#state.role == master ->
+  {reply, gen_server:call(runtime_config, Request), State};
+
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
@@ -133,8 +136,12 @@ handle_call(_Request, _From, State) ->
 
 %% i am a master ^_^
 handle_cast(elected, State) ->
+  db_cluster:start_master(),
+  master_sup:start_child(?CHILD(runtime_config)),
   master_sup:start_monitors(),
-  {noreply, cluster_handshake(State), rebalance_after(State#state.rebalanced)};
+  %% make rebalance event
+  timer:apply_after(1000, master, rebalance, []),
+  {noreply, cluster_handshake(State#state{worker_config = runtime_config:workers()})};
 
 
 %% worker started on any node
@@ -337,12 +344,27 @@ cluster_handshake(State) ->
   ?DBG("Start handshake with nodes", []),
   %% send notification to all
   cluster:notify({master, self()}),
+
   %% get info about all nodes
+  MasterNodes = lists:filtermap(fun({Node, IsMaster}) ->
+    if
+      IsMaster -> {IsMaster, Node};
+      true -> false
+    end
+  end, cluster:poll(is_master)),
+
   WorkerNodes = lists:filtermap(fun({Node, IsWorker}) ->
-      {IsWorker, Node}
+      if
+        IsWorker -> {IsWorker, Node};
+        true -> false
+      end
   end, cluster:poll(is_worker)),
 
-  ?DBG("WorkerNodes ~p", [WorkerNodes]),
+  ?DBG("Worker nodes are ~p", [WorkerNodes]),
+  ?DBG("Master nodes are ~p", [MasterNodes]),
+
+  %% connect master nodes to database cluster
+  db_cluster:add_nodes(MasterNodes),
 
   %% request list of runing workers
   RuningWorkers = lists:flatten(
@@ -351,7 +373,7 @@ cluster_handshake(State) ->
         || {Pid, Name} <- Workers]
           || {Node, Workers} <- cluster:poll(WorkerNodes, get_workers)
     ]),
-  ?DBG("RuningWorkers ~p", [RuningWorkers]),
+  ?DBG("Runing workers are ~p", [RuningWorkers]),
 
   State#state{worker_nodes = WorkerNodes, workers = RuningWorkers}.
 
@@ -360,10 +382,18 @@ node_handshake(Node, State) ->
   ?DBG("Start handshake with node ~p", [Node]),
   cluster:notify(Node, {master, self()}),
 
+  case cluster:poll(Node, is_master) of
+    true ->
+      ?DBG("Node ~p is a master node. Connect it as a slave", [Node]),
+      db_cluster:add_nodes([Node]);
+    _ ->
+      ?DBG("Node ~p is not a master node. Ignore it", [Node])
+  end,
+
   case cluster:poll(Node, is_worker) of
     true ->
       WorkerNodes = State#state.worker_nodes ++ [Node],
-      ?DBG("Node ~p is worker. WorkerNodes now are ~p", [Node, WorkerNodes]),
+      ?DBG("Node ~p is a worker. WorkerNodes now are ~p", [Node, WorkerNodes]),
 
       RuningWorkers = State#state.workers ++
         [{Node, Pid, Name} || {Pid, Name} <- cluster:poll(Node, get_workers)],
@@ -372,7 +402,7 @@ node_handshake(Node, State) ->
       State#state{worker_nodes = WorkerNodes, workers = RuningWorkers};
 
     _    ->
-      ?DBG("Node ~p is not worker. Ignore it", [Node]),
+      ?DBG("Node ~p is not a worker. Ignore it", [Node]),
       State
   end.
 
