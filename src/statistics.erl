@@ -22,7 +22,8 @@
   forget/3,
 
   get_nodes_stat/1,
-  get_worker_avg_stat/1
+  get_worker_avg_stat/1,
+  get_workers/1
 ]).
 
 %% gen_server callbacks
@@ -114,6 +115,9 @@ get_nodes_stat(Nodes) when is_list(Nodes) ->
 get_worker_avg_stat(Worker) when is_atom(Worker) ->
   gen_server:call(?SERVER, {get_worker_avg_stat, Worker}).
 
+get_workers(Node)->
+  gen_server:call(?SERVER, {get_workers, Node}).
+
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -169,6 +173,10 @@ handle_call({get_worker_avg_stat, Worker}, _From, State) ->
   {reply, Result, State};
 
 
+handle_call({get_workers, Node}, _From, State) ->
+  Result = nested:get([Node], State#state.workers, []),
+  {reply, Result, State};
+
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
@@ -222,7 +230,7 @@ handle_cast({os_state, {Node, OsState}}, State) ->
   {noreply, State#state{nodes = Nodes}};
 
 
-%% remove staticstics
+%% remove statistics
 handle_cast({forget, {Node}}, State) ->
   Nodes = nested:remove([Node], State#state.nodes),
   Workers = nested:remove([Node], State#state.workers),

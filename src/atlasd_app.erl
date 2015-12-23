@@ -29,7 +29,6 @@ start(_StartType, _StartArgs) ->
   end,
 
   cluster:connect(),
-
   AppSup.
 
 stop(_State) ->

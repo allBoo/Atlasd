@@ -191,7 +191,19 @@ handle_cast({notify_state, Node, {worker_state, WorkerState}}, State) when State
   statistics:worker_state(Node, WorkerState),
   {noreply, State};
 
-handle_cast({notify_state, Node, {os_state, OsState}}, State) when State#state.role, is_record(OsState, os_state) == master ->
+
+handle_cast({notify_state, Node, {emergency_state, []}}, State) when State#state.role == master ->
+  case reg:find({oom_killer, Node}) of
+    undefined ->
+      {ok, OomKiller} = supervisor:start_child(master_sup, ?CHILD(oom_killer, [Node]));
+    OomKiller ->
+      OomKiller
+  end,
+  gen_fsm:send_event(OomKiller, kill),
+  {noreply, State};
+
+
+handle_cast({notify_state, Node, {os_state, OsState}}, State) when State#state.role == master, is_record(OsState, os_state) ->
   statistics:os_state(Node, OsState),
   {noreply, State};
 
@@ -519,3 +531,4 @@ change_worker_procs_count(WorkersConfig, WorkerName, Count) ->
               Worker#worker{procs = Procs}
             end,
     WorkersConfig).
+

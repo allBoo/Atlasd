@@ -75,18 +75,18 @@ workers:
     nodes: "192.168.2.1"
     restart: disallow
     procs:
-      allways: 1
+      allways: 5
 
-#  task-listen-middle:
-#    command: "/apps/atlasd/priv/command2.sh"
-#    priority: 100
-#    nodes: any
-#    restart: simple
-#    max_mem: "100M"
-#    procs:
-#      min: 1
-#      max: 15
-#      max_per_node: 1
+  task-listen-middle:
+    command: "/apps/atlasd/priv/command2.sh"
+    priority: 100
+    nodes: any
+    restart: simple
+    max_mem: "100M"
+    procs:
+      min: 1
+      max: 15
+      max_per_node: 1
 
   task-listen-high:
     command: "/apps/atlasd/priv/command3.sh"

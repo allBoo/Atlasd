@@ -99,19 +99,28 @@ init([Config]) ->
   {stop, Reason :: term(), NewState :: #state{}}).
 monitor(_Event, State) ->
   Memory_info = get_memory_info(),
+  Cpu_info = #cpu_info{
+    load_average = cpu_sup:avg1(),
+    per_cpu = cpu_sup:util([per_cpu])
+  },
 
   Os_state = #os_state{
     memory_info = Memory_info,
-    cpu_info = #cpu_info{
-      load_average = cpu_sup:avg1(),
-      per_cpu = cpu_sup:util([per_cpu])
-    },
+    cpu_info = Cpu_info,
     overloaded = State#state.mem_watermark < Memory_info#memory_info.allocated_memory/
       ((Memory_info#memory_info.allocated_memory + Memory_info#memory_info.free_memory)/100)
   },
 
+  if
+    Memory_info#memory_info.free_memory == 0;
+    Cpu_info#cpu_info.load_average > length(Cpu_info#cpu_info.per_cpu)*4 ->
+      ?DBG("EMERGENCY"),
+      atlasd:notify_state(emergency_state, [])
+   end,
+
+
   atlasd:notify_state(os_state, Os_state),
-  ?DBG("State ~w", [State#state{os_state = Os_state}]),
+  %?DBG("State ~w", [State#state{os_state = Os_state}]),
   {next_state, monitor, State#state{os_state = Os_state}, 5000}.
 
 %%--------------------------------------------------------------------

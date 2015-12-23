@@ -1,28 +1,25 @@
 %%%-------------------------------------------------------------------
-%%% @author alboo
+%%% @author user
 %%% @copyright (C) 2015, <COMPANY>
 %%% @doc
 %%%
 %%% @end
-%%% Created : 04. июн 2015 1:30
+%%% Created : 18. Дек. 2015 11:24
 %%%-------------------------------------------------------------------
--module(monitor_rabbitmq).
--author("alboo").
+-module(oom_killer).
+-author("user").
 
 -behaviour(gen_fsm).
 -include_lib("atlasd.hrl").
 
 %% API
--export([
-  start_link/1,
-  mode/0,
-  child_specs/1,
-  process_queue/2
-]).
+-export([start_link/1]).
 
 %% gen_fsm callbacks
 -export([init/1,
-  monitor/2,
+  kill/2,
+  wait/2,
+  iddle/2,
   handle_event/3,
   handle_sync_event/4,
   handle_info/3,
@@ -32,24 +29,8 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-  mode = api :: api | native,
-  host = "127.0.0.1",
-  port = "15672",
-  user = "guest",
-  pass = "guest",
-  vhost = "%2f",
-  minutes_to_add_consumers = 1000,
-  exchange,
-  queue,
-  task
+  fat_worker_pid = 0
 }).
-
-
--record(queue, {name,
-  messages,
-  consumers,
-  publish_rate,
-  ack_rate}).
 
 %%%===================================================================
 %%% API
@@ -63,57 +44,9 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link(Config :: []) -> {ok, pid()} | ignore | {error, Reason :: term()}).
-start_link(Config) ->
-  gen_fsm:start_link(?MODULE, [Config], []).
-
-
-%% @static
-%% return monitor type
-mode() -> master.
-
-
-%% generates children specs for the supervisor
-child_specs(Config) ->
-  ParsedState = parse_state(Config, #state{}),
-  lists:map(fun(Monitor) ->
-    ChildName = list_to_atom("monitor_" ++ Monitor#state.task),
-    {ChildName, {?MODULE, start_link, [Monitor]}, permanent, 5000, worker, [?MODULE]}
-  end, parse_monitors(Config, ParsedState, [])).
-
-parse_state([], State) -> State;
-parse_state([{"mode", Value} | Config], State) ->
-  parse_state(Config, State#state{mode = list_to_atom(Value)});
-parse_state([{"host", Value} | Config], State) ->
-  parse_state(Config, State#state{host = Value});
-parse_state([{"port", Value} | Config], State) ->
-  parse_state(Config, State#state{port = Value});
-parse_state([{"user", Value} | Config], State) ->
-  parse_state(Config, State#state{user = Value});
-parse_state([{"pass", Value} | Config], State) ->
-  parse_state(Config, State#state{pass = Value});
-parse_state([{"vhost", Value} | Config], State) ->
-  parse_state(Config, State#state{vhost = Value});
-parse_state([{"exchange", Value} | Config], State) ->
-  parse_state(Config, State#state{exchange = Value});
-parse_state([{"queue", Value} | Config], State) ->
-  parse_state(Config, State#state{queue = Value});
-parse_state([{"task", Value} | Config], State) ->
-  parse_state(Config, State#state{task = Value});
-parse_state([_ | Config], State) ->
-  parse_state(Config, State).
-
-parse_monitors([], _State, Monitors) -> Monitors;
-parse_monitors([{"monitors", Value} | Config], State, _Monitors) ->
-  parse_monitors(Config, State, parse_monitor(Value, State, []));
-parse_monitors([_ | Config], State, Monitors) ->
-  parse_monitors(Config, State, Monitors).
-
-parse_monitor([], _State, Monitors) -> Monitors;
-parse_monitor([{TaskName, MonitorConfig} | Config], State, Monitors) ->
-  parse_monitor(Config, State, [parse_state(MonitorConfig, State#state{task = TaskName}) | Monitors]);
-parse_monitor([_ | Config], State, Monitors) ->
-  parse_monitor(Config, State, Monitors).
+-spec(start_link(Args :: term()) -> {ok, pid()} | ignore | {error, Reason :: term()}).
+start_link(Node) ->
+  gen_fsm:start_link(?MODULE, [Node], []).
 
 %%%===================================================================
 %%% gen_fsm callbacks
@@ -132,9 +65,10 @@ parse_monitor([_ | Config], State, Monitors) ->
   {ok, StateName :: atom(), StateData :: #state{}} |
   {ok, StateName :: atom(), StateData :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([Config]) ->
-  ?DBG("Started rabbitmq monitor ~p", [Config]),
-  {ok, monitor, Config, 10000}.
+init([Node]) ->
+  ?DBG("Started oom killer"),
+  reg:name({oom_killer, Node}),
+  {ok, kill, #state{}, 1000}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -147,15 +81,39 @@ init([Config]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(monitor(Event :: term(), State :: #state{}) ->
+-spec(kill(Event :: term(), State :: #state{}) ->
   {next_state, NextStateName :: atom(), NextState :: #state{}} |
   {next_state, NextStateName :: atom(), NextState :: #state{},
     timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
 
-monitor(_Event, State) ->
-  process_queue(rabbitmq_api:get_queue_by_name(State), State),
-  {next_state, monitor, State, 10000}.
+kill(_Event, State)->
+  {next_state, wait, State#state{fat_worker_pid = kill_fat_worker()}, 1000}.
+
+wait(Event, State) when Event /= kill ->
+  case is_pid(State#state.fat_worker_pid) of
+    true ->
+      case process_info(State#state.fat_worker_pid) of
+        undefined ->
+          {next_state, iddle, State};
+        _ ->
+          {next_state, wait, State, 5000}
+      end;
+    _ -> {next_state, iddle, State}
+end;
+
+wait(_Event, State) ->
+  {next_state, wait, State}.
+
+%%
+iddle(Event, State) when Event == kill ->
+  {next_state, kill, State, 1000};
+
+iddle(_Event, State) ->
+  {next_state, iddle, State}.
+
+
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -248,60 +206,49 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-process_queue(Queue, State) when Queue /= false ->
-  ?DBG("Processing queue: ~p~n", [Queue#queue.name]),
-  Estimated_time =
-    if
-      Queue#queue.ack_rate == 0.0 -> -1;
-      true -> round((Queue#queue.messages / Queue#queue.ack_rate) / 60)
-    end,
 
+kill_fat_worker() ->
+  Workers = statistics:get_workers(node()),
   if
-    Queue#queue.messages =:= 0, Queue#queue.consumers =/= 0, Queue#queue.publish_rate =:= 0.0 ->
-    ?DBG("~w messages, ~w consumers, consumers must be killed ~n", [
-      Queue#queue.messages,
-      Queue#queue.consumers
-    ]),
-    atlasd:change_workers_count(State#state.task, 0);
-    Queue#queue.messages =:= 0, Queue#queue.consumers =/= 0, Queue#queue.publish_rate =/= 0.0 ->
-      ?DBG("~w messages, ~w consumers, publish rate ~w, consumers must be decreased ~n", [
-        Queue#queue.messages,
-        Queue#queue.consumers,
-        Queue#queue.publish_rate
-      ]),
-      atlasd:decrease_workers(State#state.task);
-    true -> ok
-  end,
+    Workers /= [] ->
+      TaskNames = [X || X <- nested:keys([], Workers),
+        (config:worker(X))#worker.restart /= disallow],
 
-  if
-    Queue#queue.messages =/= 0, Queue#queue.consumers =:= 0 ->
-    ?DBG("~p consumers, ~p messages, consumers must be added ~n", [
-      Queue#queue.consumers,
-      Queue#queue.messages
-    ]),
-      atlasd:change_workers_count(State#state.task, 1);
-    true -> ok
-  end,
+      WorkersStates = lists:flatten(
+        [
+          X || X <- [
+          W || W <- get_workers_states(TaskNames, Workers), W /= []
+        ],
+          ((((config:worker((lists:last(X))#worker_state.name))#worker.procs)#worker_procs.each_node /= 1)
+            or (length(X) > 1))
+        ]),
 
-  if
-    Estimated_time > State#state.minutes_to_add_consumers ->
-    ?DBG("Estimate time ~p (more than ~p minutes), consumers must be added ~n", [
-      Estimated_time, State#state.minutes_to_add_consumers
-    ]),
-    atlasd:increase_workers(State#state.task);
-    true -> ok
-  end,
+      ?DBG("Workers count that can be killed ~w", [length(WorkersStates)]),
+      case get_fat_worker(WorkersStates) of
+        {ok, FatWorker} ->
+          cluster:notify(node(), {stop_worker, FatWorker#worker_state.pid}),
+          FatWorker#worker_state.pid;
+        _ -> false
+      end;
+    true -> false
+  end.
 
-  ?DBG("--------------------------------------------------"),
-  ?DBG("Publish rate: ~p/s ~n", [Queue#queue.publish_rate]),
-  ?DBG("Ack rate: ~p/s ~n", [Queue#queue.ack_rate]),
-  ?DBG("Messages count: ~p ~n", [Queue#queue.messages]),
-  ?DBG("Consumers count: ~p ~n", [Queue#queue.consumers]),
-  ?DBG("--------------------------------------------------"),
-  ?DBG("Estimated time: ~p minutes ~n", [Estimated_time]),
-  ?DBG("--------------------------------------------------"),
-  ok;
 
-process_queue(Queue, State) when Queue == false ->
-  ?DBG("Queue proccess failed ~p", [State]),
-  failed.
+get_fat_worker([]   ) -> empty;
+get_fat_worker([H|T]) -> {ok, get_fat_worker(H, T)}.
+
+get_fat_worker(X, []   )            -> X;
+get_fat_worker(X, [H|T]) when (X#worker_state.cpu+X#worker_state.memory) < (H#worker_state.cpu+H#worker_state.memory) -> get_fat_worker(H, T);
+get_fat_worker(X, [_|T])            -> get_fat_worker(X, T).
+
+
+
+get_workers_states([H|T], L) ->
+  W = nested:get([H], L, []),
+  if is_record(W, worker_state) ->
+    [ W | get_workers_states(T, L) ];
+    true -> [get_workers_states(nested:keys([], W), W) | get_workers_states(T, L) ]
+  end;
+
+get_workers_states([], _) ->
+  [].
