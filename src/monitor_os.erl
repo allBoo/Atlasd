@@ -53,7 +53,7 @@
 %%--------------------------------------------------------------------
 -spec(start_link(Config :: []) -> {ok, pid()} | ignore | {error, Reason :: term()}).
 start_link(Config) ->
-  gen_fsm:start_link(?MODULE, [Config], []).
+  gen_fsm:start_link({local, ?MODULE}, ?MODULE, [Config], []).
 
 
 mode() -> node.
@@ -100,7 +100,7 @@ init([Config]) ->
 monitor(_Event, State) ->
   Memory_info = get_memory_info(),
   Cpu_info = #cpu_info{
-    load_average = cpu_sup:avg1(),
+    load_average = cpu_sup:avg1() / 256,
     per_cpu = cpu_sup:util([per_cpu])
   },
 

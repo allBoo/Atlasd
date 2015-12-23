@@ -16,6 +16,7 @@
 -export([
   start_link/0,
   is_worker/0,
+  is_master/0,
   worker_started/1,
   worker_stoped/1,
   start_worker/1,
@@ -24,7 +25,8 @@
   increase_workers/1,
   decrease_workers/1,
   change_workers_count/2,
-  notify_state/2
+  notify_state/2,
+  get_runtime/1
 ]).
 
 %% gen_server callbacks
@@ -58,6 +60,10 @@ start_link() ->
 is_worker() ->
   config:get("node.worker", false, boolean).
 
+%% test if node is a master
+is_master() ->
+  config:get("node.master", false, boolean).
+
 %% start worker
 start_worker(Worker) when is_record(Worker, worker); is_atom(Worker); is_list(Worker) ->
   gen_server:cast(?SERVER, {start_worker, Worker}).
@@ -89,6 +95,9 @@ worker_started({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
 worker_stoped({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
   gen_server:cast(?SERVER, {worker_stoped, Worker}).
 
+%% get runtime config variable from master node
+get_runtime(Request) ->
+  gen_server:call(?SERVER, {get_runtime, Request}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -143,12 +152,19 @@ init([]) ->
 handle_call(is_worker, _From, State) ->
   {reply, is_worker(), State};
 
+handle_call(is_master, _From, State) ->
+  {reply, is_master(), State};
+
 
 handle_call(get_workers, _From, State) ->
   case is_worker() of
     true -> {reply, workers_sup:get_workers(), State};
     _ -> {reply, ignore, State}
   end;
+
+
+handle_call({get_runtime, Request}, _From, State) when is_pid(State#state.master) ->
+  {reply, gen_server:call(State#state.master, {get_runtime, Request}), State};
 
 
 handle_call(Request, From, State) ->
