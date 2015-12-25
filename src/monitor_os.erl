@@ -75,10 +75,10 @@ mode() -> node.
   {ok, StateName :: atom(), StateData :: #state{}} |
   {ok, StateName :: atom(), StateData :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([Config]) ->
-  [{_, Mem_watermark}] = Config,
-  State = #state{mem_watermark = Mem_watermark},
-  ?DBG("Started os monitor ~w", [Config]),
+init([Monitor]) ->
+  Config = Monitor#monitor.config,
+  State = #state{mem_watermark = Config#os_monitor.mem_watermark},
+  ?DBG("Started os monitor ~w", [State]),
   {ok, monitor, State, 1000}.
 
 %%--------------------------------------------------------------------
@@ -115,12 +115,11 @@ monitor(_Event, State) ->
     Memory_info#memory_info.free_memory == 0;
     Cpu_info#cpu_info.load_average > length(Cpu_info#cpu_info.per_cpu)*4 ->
       ?DBG("EMERGENCY"),
-      atlasd:notify_state(emergency_state, [])
+      atlasd:notify_state(emergency_state, []);
+    true -> false
    end,
 
-
   atlasd:notify_state(os_state, Os_state),
-  %?DBG("State ~w", [State#state{os_state = Os_state}]),
   {next_state, monitor, State#state{os_state = Os_state}, 5000}.
 
 %%--------------------------------------------------------------------

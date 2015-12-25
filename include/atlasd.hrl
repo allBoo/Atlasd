@@ -57,6 +57,32 @@
   enabled  = true             :: boolean()
 }).
 
+-record(rabbitmq_monitor_task, {
+  task :: string(),
+  exchange = parsley :: parsley | atom(),
+  queue :: string(),
+  vhost = "%2f",
+  minutes_to_add_consumers = 1000
+}).
+
+-record(rabbitmq_monitor, {
+  mode = api :: api | native | atom(),
+  host :: string(),
+  port = "15672",
+  user = "guest" :: string(),
+  pass = "guest" :: string(),
+  tasks = [] :: [#rabbitmq_monitor_task{}]
+}).
+
+-record(os_monitor, {
+  mem_watermark = 80 :: integer()
+}).
+
+-record(monitor, {
+  name :: atom(),
+  config :: #os_monitor{} | #rabbitmq_monitor{}
+}).
+
 
 %%% ====================================================================
 %%% OS monitor spec

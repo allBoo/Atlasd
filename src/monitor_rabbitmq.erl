@@ -75,45 +75,23 @@ mode() -> master.
 
 %% generates children specs for the supervisor
 child_specs(Config) ->
-  ParsedState = parse_state(Config, #state{}),
-  lists:map(fun(Monitor) ->
-    ChildName = list_to_atom("monitor_" ++ Monitor#state.task),
-    {ChildName, {?MODULE, start_link, [Monitor]}, permanent, 5000, worker, [?MODULE]}
-  end, parse_monitors(Config, ParsedState, [])).
-
-parse_state([], State) -> State;
-parse_state([{"mode", Value} | Config], State) ->
-  parse_state(Config, State#state{mode = list_to_atom(Value)});
-parse_state([{"host", Value} | Config], State) ->
-  parse_state(Config, State#state{host = Value});
-parse_state([{"port", Value} | Config], State) ->
-  parse_state(Config, State#state{port = Value});
-parse_state([{"user", Value} | Config], State) ->
-  parse_state(Config, State#state{user = Value});
-parse_state([{"pass", Value} | Config], State) ->
-  parse_state(Config, State#state{pass = Value});
-parse_state([{"vhost", Value} | Config], State) ->
-  parse_state(Config, State#state{vhost = Value});
-parse_state([{"exchange", Value} | Config], State) ->
-  parse_state(Config, State#state{exchange = Value});
-parse_state([{"queue", Value} | Config], State) ->
-  parse_state(Config, State#state{queue = Value});
-parse_state([{"task", Value} | Config], State) ->
-  parse_state(Config, State#state{task = Value});
-parse_state([_ | Config], State) ->
-  parse_state(Config, State).
-
-parse_monitors([], _State, Monitors) -> Monitors;
-parse_monitors([{"monitors", Value} | Config], State, _Monitors) ->
-  parse_monitors(Config, State, parse_monitor(Value, State, []));
-parse_monitors([_ | Config], State, Monitors) ->
-  parse_monitors(Config, State, Monitors).
-
-parse_monitor([], _State, Monitors) -> Monitors;
-parse_monitor([{TaskName, MonitorConfig} | Config], State, Monitors) ->
-  parse_monitor(Config, State, [parse_state(MonitorConfig, State#state{task = TaskName}) | Monitors]);
-parse_monitor([_ | Config], State, Monitors) ->
-  parse_monitor(Config, State, Monitors).
+  lists:map(fun(Task) ->
+                  {list_to_atom("monitor_" ++ Task#rabbitmq_monitor_task.task), {?MODULE, start_link, [
+                    #state{
+                      mode = Config#rabbitmq_monitor.mode,
+                      host = Config#rabbitmq_monitor.host,
+                      port = Config#rabbitmq_monitor.port,
+                      user = Config#rabbitmq_monitor.user,
+                      pass = Config#rabbitmq_monitor.pass,
+                      vhost = Task#rabbitmq_monitor_task.vhost,
+                      minutes_to_add_consumers = Task#rabbitmq_monitor_task.minutes_to_add_consumers,
+                      exchange = Task#rabbitmq_monitor_task.exchange,
+                      queue = Task#rabbitmq_monitor_task.queue,
+                      task = Task#rabbitmq_monitor_task.task
+                    }
+                  ]}, permanent, 5000, worker, [?MODULE]}
+                end,
+    Config#rabbitmq_monitor.tasks).
 
 %%%===================================================================
 %%% gen_fsm callbacks
@@ -306,3 +284,4 @@ process_queue(Queue, State) when Queue /= false ->
 process_queue(Queue, State) when Queue == false ->
   ?DBG("Queue proccess failed ~p", [State]),
   failed.
+
