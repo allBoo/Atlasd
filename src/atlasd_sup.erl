@@ -30,5 +30,9 @@ start_child(ChildSpec) ->
 %% ===================================================================
 
 init([]) ->
-    {ok, { {one_for_one, 5, 10}, [?CHILD(config), ?CHILD(atlasd), ?CHILD(cluster)]} }.
-
+    Children = [
+        ?CHILD(config),
+        ?CHILD(atlasd),
+        ?CHILD(cluster)
+    ],
+    {ok, {{one_for_one, 5, 10}, Children}}.

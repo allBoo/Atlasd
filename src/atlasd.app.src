@@ -10,7 +10,8 @@
                   inets,
                   os_mon,
                   gproc,
-                  yamerl
+                  yamerl,
+                  elli
                  ]},
   {mod, { atlasd_app, []}},
   {env, [

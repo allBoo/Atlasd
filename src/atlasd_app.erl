@@ -34,6 +34,9 @@ start(_StartType, _StartArgs) ->
     _ -> ok
   end,
 
+  %% start http-server
+  config:get("http.enabled") andalso supervisor:start_child(atlasd_sup, ?CHILD(api)),
+
   cluster:connect(),
 
   AppSup.
