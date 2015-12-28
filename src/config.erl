@@ -18,6 +18,8 @@
   get/1,
   get/2,
   get/3,
+  monitors/0,
+  monitor/1,
   workers/0,
   worker/1,
   parse_workers/1
@@ -93,6 +95,14 @@ get(Key, Default, boolean) ->
     I when is_integer(I) -> I =/= 0;
     _ -> Default
   end.
+
+monitors() ->
+  get_runtime(get_monitors).
+
+monitor(MonitorName) when is_list(MonitorName) ->
+  monitor(list_to_atom(MonitorName));
+monitor(MonitorName) when is_atom(MonitorName) ->
+  get_runtime({get_monitor, MonitorName}).
 
 
 workers() ->

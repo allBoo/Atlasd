@@ -64,12 +64,11 @@ init([]) ->
 %%%===================================================================
 
 get_master_monitors() ->
-  lists:flatmap(fun({Monitor, Config}) ->
-    MonitorModule = list_to_atom("monitor_" ++ Monitor),
-    case apply(MonitorModule, mode, []) of
+  Monitors = config:monitors(),
+  lists:flatmap(fun(Monitor) ->
+    case apply(Monitor#monitor.name, mode, []) of
       master ->
-        apply(MonitorModule, child_specs, [Config]);
-
+        apply(Monitor#monitor.name, child_specs, [Monitor#monitor.config]);
       _ -> []
     end
-  end, config:get("monitors")).
+  end, Monitors).

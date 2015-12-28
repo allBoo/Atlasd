@@ -16,6 +16,10 @@
 -export([
   start_link/0,
 
+  monitors/0,
+  monitor/1,
+  set_monitor/2,
+
   workers/0,
   worker/1,
   set_worker/1
@@ -57,6 +61,32 @@ start_link() ->
 %%--------------------------------------------------------------------
 workers() ->
   gen_server:call(?SERVER, get_workers).
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% returns monitors config
+%%
+%% @end
+%%--------------------------------------------------------------------
+monitors() ->
+  gen_server:call(?SERVER, get_monitors).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% returns single monitor config
+%%
+%% @end
+%%--------------------------------------------------------------------
+monitor(MonitorName) when is_list(MonitorName) ->
+  monitor(list_to_atom(MonitorName));
+monitor(MonitorName) when is_atom(MonitorName) ->
+  gen_server:call(?SERVER, {get_monitor, MonitorName}).
+
+
+set_monitor(MonitorName, MonitorData) when is_record(MonitorName, monitor) ->
+  gen_server:cast(?SERVER, {set_worker, MonitorName, MonitorData}).
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -110,9 +140,15 @@ init([]) ->
   {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
   {stop, Reason :: term(), NewState :: #state{}}).
 
+handle_call(get_monitors, _From, State) ->
+  {reply, get_list(qlc:q([Monitor || Monitor <- mnesia:table(monitor)])), State};
+
+handle_call({get_monitor, MonitorName}, _From, State) ->
+  ?DBG("Monitor os: ~w", [MonitorName]),
+  {reply, get_one(qlc:q([Monitor || Monitor <- mnesia:table(monitor), Monitor#monitor.name == MonitorName])), State};
+
 handle_call(get_workers, _From, State) ->
   {reply, get_list(qlc:q([Worker || Worker <- mnesia:table(worker)])), State};
-
 
 handle_call({get_worker, WorkerName}, _From, State) ->
   {reply, get_one(qlc:q([Worker || Worker <- mnesia:table(worker), Worker#worker.name == WorkerName])), State};
@@ -135,6 +171,11 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({set_worker, Worker}, State) when is_record(Worker, worker) ->
   save(Worker),
+  {noreply, State};
+
+
+handle_cast({set_monitor, Monitor}, State) when is_record(Monitor, monitor) ->
+  save(Monitor),
   {noreply, State};
 
 

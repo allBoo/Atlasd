@@ -114,7 +114,7 @@ auth_header(User, Pass) ->
 
 request(Url, Method, State) ->
   URL = "http://" ++ State#state.host ++ ":" ++ State#state.port ++ "/api" ++ Url,
-  ?DBG(URL),
+  %?DBG(URL),
   Headers = [auth_header(State#state.user, State#state.pass), {"Content-Type", "application/json"}],
   {Result, { Status, _, Body}} = httpc:request(Method, {URL, Headers}, [], []),
   {_, Status_code, _} = Status,

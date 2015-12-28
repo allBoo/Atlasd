@@ -15,11 +15,13 @@ start(_StartType, _StartArgs) ->
   %observer:start(),
   ok = start_epmd(),
 
+
+
   %% start worker sup
   case config:get("node.worker") of
     true ->
       atlasd_sup:start_child(?CHILD(workers_monitor)),
-      atlasd_sup:start_child(?CHILD(monitor_os, [config:get("monitors.os", [{"mem_watermark", 80}])])),
+      atlasd_sup:start_child(?CHILD(monitor_os, [config:monitor(monitor_os)])),
       atlasd_sup:start_child(?CHILD_SUP(workers_sup));
     _ -> ok
   end,
@@ -33,6 +35,7 @@ start(_StartType, _StartArgs) ->
   end,
 
   cluster:connect(),
+
   AppSup.
 
 stop(_State) ->
