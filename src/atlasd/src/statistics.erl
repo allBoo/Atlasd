@@ -22,6 +22,7 @@
   forget/3,
 
   get_nodes_stat/1,
+  get_node_stat/1,
   get_worker_avg_stat/1,
   get_workers/1
 ]).
@@ -104,6 +105,9 @@ forget(Node, Worker, Pid) ->
 %%--------------------------------------------------------------------
 get_nodes_stat(Nodes) when is_list(Nodes) ->
   gen_server:call(?SERVER, {get_nodes_stat, Nodes}).
+
+get_node_stat(Node) when is_atom(Node) ->
+  gen_server:call(?SERVER, {get_node_stat, Node}).
 
 
 %%--------------------------------------------------------------------

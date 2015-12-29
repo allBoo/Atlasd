@@ -26,7 +26,8 @@
   decrease_workers/1,
   change_workers_count/2,
   notify_state/2,
-  get_runtime/1
+  get_runtime/1,
+  get_nodes/0
 ]).
 
 %% gen_server callbacks
@@ -99,6 +100,10 @@ worker_stoped({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
 get_runtime(Request) ->
   gen_server:call(?SERVER, {get_runtime, Request}).
 
+%% returns list of connected nodes
+get_nodes() ->
+  gen_server:call(?SERVER, get_nodes).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% notify master server about cluster state (workers stat, os stat and other)
@@ -165,6 +170,12 @@ handle_call(get_workers, _From, State) ->
 
 handle_call({get_runtime, Request}, _From, State) when is_pid(State#state.master) ->
   {reply, gen_server:call(State#state.master, {get_runtime, Request}), State};
+
+
+handle_call(get_nodes, _From, State) when is_pid(State#state.master) ->
+  {reply, gen_server:call(State#state.master, get_nodes), State};
+handle_call(get_nodes, _From, State) ->
+  {reply, {error, "master node is not started"}, State};
 
 
 handle_call(Request, From, State) ->

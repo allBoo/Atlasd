@@ -108,7 +108,7 @@ init([]) ->
     NodeName = config:get("cluster.name", "atlasd"),
     list_to_atom(NodeName ++ "@" ++ El)
   end, config:get("cluster.hosts")),
-  net_kernel:allow(Nodes),
+  net_kernel:allow(Nodes ++ ['atlasctl@127.0.0.1']),
 
   net_kernel:monitor_nodes(true),
 
@@ -158,6 +158,10 @@ handle_call({notify, Message}, _From, State) ->
 %% send async notification to node
 handle_call({notify, Node, Message}, _From, State) ->
   {reply, gen_server:cast({atlasd, Node}, Message), State};
+
+%% send async notification to node
+handle_call(get_nodes, _From, State) ->
+  {reply, State#state.known, State};
 
 %%
 handle_call(Request, _From, State) ->

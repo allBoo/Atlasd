@@ -25,15 +25,15 @@ up() ->
         tasks = [
           #rabbitmq_monitor_task{
             task = "task-listen-middle",
-            queue = "ds.conveyer.task.middle"
+            queue = "ds.conveyor.converter.gc"
           },
           #rabbitmq_monitor_task{
             task = "task-listen-low",
-            queue = "ds.conveyer.task.low"
+            queue = "ds.conveyor.all.low"
           },
           #rabbitmq_monitor_task{
             task = "task-listen-high",
-            queue = "ds.conveyer.task.high"
+            queue = "ds.conveyor.all.high"
           }
         ]
       }

@@ -37,6 +37,7 @@
   master_node    :: node() | undefined,          %% master node
   worker_config  :: [#worker{}],                 %% base workers config
   worker_nodes   :: [node()],                    %% list of worker nodes
+  master_nodes   :: [node()],                    %% list of master nodes
   workers        :: [{node(), pid(), Name :: atom()}],    %% current runing workers
   rebalanced = 0 :: integer()
 }).
@@ -117,6 +118,20 @@ init([]) ->
 
 handle_call({get_runtime, Request}, _From, State) when State#state.role == master ->
   {reply, gen_server:call(runtime_config, Request), State};
+
+
+handle_call(get_nodes, _From, State) when State#state.role == master ->
+  Nodes = lists:map(fun(Node) ->
+    {Node, #{
+      name        => Node,
+      master_node => Node =:= node(),
+      is_worker   => false, %cluster:poll(Node, is_worker),
+      is_master   => false, %cluster:poll(Node, is_master),
+      stats       => statistics:get_node_stat(Node)
+    }}
+  end, gen_server:call(cluster, get_nodes)),
+  {reply, {ok, maps:from_list(Nodes)}, State};
+
 
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.

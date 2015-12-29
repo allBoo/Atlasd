@@ -1,0 +1,15 @@
+{application, atlasctl,
+ [
+  {description, "Atlasd cli control interface"},
+  {vsn, "0.0.1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  sasl,
+                  yamerl
+                 ]},
+  {env, [
+    {config, "/apps/atlasd/etc/atlasd.yml"}
+  ]}
+ ]}.
