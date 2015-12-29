@@ -6,5 +6,7 @@ deps/yamerl
 deps/ibrowse
 deps/jiffy
 deps/nested
+deps/elli*
+deps/meck
 
 erl_crash.dump

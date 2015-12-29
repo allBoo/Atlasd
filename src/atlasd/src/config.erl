@@ -249,7 +249,6 @@ locate_config() ->
 
 select_config([]) ->
   ?THROW_ERROR(?ERROR_CONFIG_NOT_FOUND);
-
 select_config(Paths) ->
   lists:nth(1, Paths).
 
