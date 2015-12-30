@@ -125,8 +125,8 @@ handle_call(get_nodes, _From, State) when State#state.role == master ->
     {Node, #{
       name        => Node,
       master_node => Node =:= node(),
-      is_worker   => false, %cluster:poll(Node, is_worker),
-      is_master   => false, %cluster:poll(Node, is_master),
+      is_worker   => cluster:poll(Node, is_worker),
+      is_master   => cluster:poll(Node, is_master),
       stats       => statistics:get_node_stat(Node)
     }}
   end, gen_server:call(cluster, get_nodes)),
@@ -390,7 +390,7 @@ cluster_handshake(State) ->
     ]),
   ?DBG("Runing workers are ~p", [RuningWorkers]),
 
-  State#state{worker_nodes = WorkerNodes, workers = RuningWorkers}.
+  State#state{worker_nodes = WorkerNodes, workers = RuningWorkers, master_nodes = MasterNodes}.
 
 
 node_handshake(Node, State) ->
@@ -400,9 +400,14 @@ node_handshake(Node, State) ->
   case cluster:poll(Node, is_master) of
     true ->
       ?DBG("Node ~p is a master node. Connect it as a slave", [Node]),
-      db_cluster:add_nodes([Node]);
-    _ ->
-      ?DBG("Node ~p is not a master node. Ignore it", [Node])
+      db_cluster:add_nodes([Node]),
+      MasterNodes = State#state.master_nodes ++ [Node],
+
+      State#state{master_nodes = MasterNodes};
+
+    _   ->
+      ?DBG("Node ~p is not a master node. Ignore it", [Node]),
+      State
   end,
 
   case cluster:poll(Node, is_worker) of

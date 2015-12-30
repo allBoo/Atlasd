@@ -161,7 +161,7 @@ handle_call({notify, Node, Message}, _From, State) ->
 
 %% send async notification to node
 handle_call(get_nodes, _From, State) ->
-  {reply, State#state.known, State};
+  {reply, lists:usort(State#state.known ++ State#state.nodes), State};
 
 %%
 handle_call(Request, _From, State) ->
