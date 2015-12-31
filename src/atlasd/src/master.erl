@@ -125,8 +125,8 @@ handle_call(get_nodes, _From, State) when State#state.role == master ->
     {Node, #{
       name        => Node,
       master_node => Node =:= node(),
-      is_worker   => cluster:poll(Node, is_worker),
-      is_master   => cluster:poll(Node, is_master),
+      is_worker   => lists:member(Node, State#state.worker_nodes),
+      is_master   => lists:member(Node, State#state.master_nodes),
       stats       => statistics:get_node_stat(Node)
     }}
   end, gen_server:call(cluster, get_nodes)),
@@ -283,17 +283,23 @@ handle_info({_From, {node, up, Node}}, State) when State#state.role == master ->
 
 handle_info({_From, {node, down, Node}}, State) when State#state.role == master ->
   statistics:forget(Node),
-  case lists:member(Node, State#state.worker_nodes) of
-    true ->
+
+  IsMaster = lists:member(Node, State#state.master_nodes),
+  IsWorker = lists:member(Node, State#state.worker_nodes),
+
+  if
+    IsMaster =:= true ->
+      MasterNodes = lists:delete(Node, State#state.master_nodes),
+      {noreply, State#state{master_nodes = MasterNodes}, rebalance_after(State#state.rebalanced)};
+    IsWorker =:= true ->
       WorkerNodes = lists:delete(Node, State#state.worker_nodes),
       RuningWorkers = lists:filter(fun({WorkerNode, _, _}) ->
         WorkerNode =/= Node
-      end, State#state.workers),
+                                   end, State#state.workers),
       ?DBG("Worker node ~p has down. WorkerNodes are ~p and workers are ~p", [Node, WorkerNodes, RuningWorkers]),
-      
-      {noreply, State#state{worker_nodes = WorkerNodes, workers = RuningWorkers}, rebalance_after(State#state.rebalanced)};
 
-    _ ->
+      {noreply, State#state{worker_nodes = WorkerNodes, workers = RuningWorkers}, rebalance_after(State#state.rebalanced)};
+    true ->
       {noreply, State}
   end;
 
@@ -397,34 +403,30 @@ node_handshake(Node, State) ->
   ?DBG("Start handshake with node ~p", [Node]),
   cluster:notify(Node, {master, self()}),
 
+
   case cluster:poll(Node, is_master) of
     true ->
       ?DBG("Node ~p is a master node. Connect it as a slave", [Node]),
       db_cluster:add_nodes([Node]),
-      MasterNodes = State#state.master_nodes ++ [Node],
-
-      State#state{master_nodes = MasterNodes};
-
+      MasterNodes = State#state.master_nodes ++ [Node];
     _   ->
       ?DBG("Node ~p is not a master node. Ignore it", [Node]),
-      State
+      MasterNodes = State#state.master_nodes
   end,
 
   case cluster:poll(Node, is_worker) of
     true ->
       WorkerNodes = State#state.worker_nodes ++ [Node],
       ?DBG("Node ~p is a worker. WorkerNodes now are ~p", [Node, WorkerNodes]),
-
       RuningWorkers = State#state.workers ++
         [{Node, Pid, Name} || {Pid, Name} <- cluster:poll(Node, get_workers)],
-      ?DBG("RuningWorkers ~p", [RuningWorkers]),
-
-      State#state{worker_nodes = WorkerNodes, workers = RuningWorkers};
-
+      ?DBG("RuningWorkers ~p", [RuningWorkers]);
     _    ->
       ?DBG("Node ~p is not a worker. Ignore it", [Node]),
-      State
-  end.
+      WorkerNodes = State#state.worker_nodes
+  end,
+
+  State#state{master_nodes = MasterNodes, worker_nodes = WorkerNodes}.
 
 
 %% rebalancing
@@ -581,4 +583,3 @@ change_worker_procs_count(WorkersConfig, WorkerName, Count) ->
               Worker#worker{procs = Procs}
             end,
     WorkersConfig).
-
