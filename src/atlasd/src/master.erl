@@ -284,24 +284,26 @@ handle_info({_From, {node, up, Node}}, State) when State#state.role == master ->
 handle_info({_From, {node, down, Node}}, State) when State#state.role == master ->
   statistics:forget(Node),
 
-  IsMaster = lists:member(Node, State#state.master_nodes),
-  IsWorker = lists:member(Node, State#state.worker_nodes),
+  case lists:member(Node, State#state.master_nodes) of
+    true ->
+      MasterNodes = lists:delete(Node, State#state.master_nodes);
+    _ ->
+      MasterNodes = State#state.master_nodes
+  end,
 
-  if
-    IsMaster =:= true ->
-      MasterNodes = lists:delete(Node, State#state.master_nodes),
-      {noreply, State#state{master_nodes = MasterNodes}, rebalance_after(State#state.rebalanced)};
-    IsWorker =:= true ->
+  case lists:member(Node, State#state.worker_nodes) of
+    true ->
       WorkerNodes = lists:delete(Node, State#state.worker_nodes),
-      RuningWorkers = lists:filter(fun({WorkerNode, _, _}) ->
+      RunningWorkers = lists:filter(fun({WorkerNode, _, _}) ->
         WorkerNode =/= Node
                                    end, State#state.workers),
-      ?DBG("Worker node ~p has down. WorkerNodes are ~p and workers are ~p", [Node, WorkerNodes, RuningWorkers]),
+      ?DBG("Worker node ~p has down. WorkerNodes are ~p and workers are ~p", [Node, WorkerNodes, RunningWorkers]);
+    _ ->
+      WorkerNodes = State#state.worker_nodes,
+      RunningWorkers = State#state.workers
+  end,
 
-      {noreply, State#state{worker_nodes = WorkerNodes, workers = RuningWorkers}, rebalance_after(State#state.rebalanced)};
-    true ->
-      {noreply, State}
-  end;
+  {noreply, State#state{worker_nodes = WorkerNodes, workers = RunningWorkers, master_nodes = MasterNodes}, rebalance_after(State#state.rebalanced)};
 
 handle_info(Info, State) ->
   ?DBG("MASTER RECIEVE ~p", [Info]),
