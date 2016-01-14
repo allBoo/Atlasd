@@ -15,10 +15,17 @@ handle(Req, _Args) ->
   handle(Req#req.method, elli_request:path(Req), Req).
 
 %% Route METHOD & PATH to the appropriate clause
-handle('GET',[<<"hello">>, <<"world">>], _Req) ->
-  %% Reply with a normal response. 'ok' can be used instead of '200'
-  %% to signal success.
-  {ok, [], <<"Hello World!">>};
+handle('GET',[<<"nodes">>], _Req) ->
+  {Response_status, Nodes} = atlasd:get_nodes(),
+  Nodes_filtered = maps:map(
+    fun(Node_name, Node_data) -> maps:without([stats], Node_data) end,
+    Nodes
+  ),
+  Response = jiffy:encode(#{
+    <<"status">> => Response_status,
+    <<"nodes">> => Nodes_filtered
+  }),
+  {ok, [], Response};
 
 handle(_, _, _Req) ->
   {404, [], <<"Not Found">>}.
