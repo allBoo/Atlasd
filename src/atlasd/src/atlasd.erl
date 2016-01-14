@@ -27,7 +27,9 @@
   change_workers_count/2,
   notify_state/2,
   get_runtime/1,
-  get_nodes/0
+  get_nodes/0,
+  connect/1,
+  forget/1
 ]).
 
 %% gen_server callbacks
@@ -104,6 +106,14 @@ get_runtime(Request) ->
 get_nodes() ->
   gen_server:call(?SERVER, get_nodes).
 
+%% connect to a node
+connect(Node) ->
+  gen_server:call(?SERVER, {connect, Node}).
+
+%% remove node from cluster
+forget(Node) ->
+  gen_server:call(?SERVER, {forget, Node}).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% notify master server about cluster state (workers stat, os stat and other)
@@ -176,6 +186,26 @@ handle_call(get_nodes, _From, State) when is_pid(State#state.master) ->
   {reply, gen_server:call(State#state.master, get_nodes), State};
 handle_call(get_nodes, _From, State) ->
   {reply, {error, "master node is not started"}, State};
+
+
+handle_call({connect, Node}, _From, State) when is_pid(State#state.master) ->
+  NodeAtom = if
+               is_list(Node) -> list_to_atom(Node);
+               true -> Node
+             end,
+  {reply, gen_server:call(State#state.master, {connect, NodeAtom}), State};
+handle_call({connect, _Node}, _From, State) ->
+  {reply, {error, "You should use this command only on working cluster with master nodes to connect new nodes to this cluster"}, State};
+
+
+handle_call({forget, Node}, _From, State) when is_pid(State#state.master) ->
+  NodeAtom = if
+               is_list(Node) -> list_to_atom(Node);
+               true -> Node
+             end,
+  {reply, gen_server:call(State#state.master, {forget, NodeAtom}), State};
+handle_call({forget, _Node}, _From, State) ->
+  {reply, {error, "You should use this command only on working cluster with master nodes to connect new nodes to this cluster"}, State};
 
 
 handle_call(Request, From, State) ->
@@ -280,6 +310,14 @@ handle_cast({worker_crashed, Pid}, State) when is_pid(State#state.master),
 %% inform master about workers
 handle_cast({notify_state, {Type, Notification}}, State) when is_pid(State#state.master) ->
   gen_server:cast(State#state.master, {notify_state, node(), {Type, Notification}}),
+  {noreply, State};
+
+
+%% stoping the node
+handle_cast(stop, State) ->
+  ?LOG("Recieve request to stop node. Trying to stop node", []),
+  %application:stop(atlasd),
+  init:stop(),
   {noreply, State};
 
 

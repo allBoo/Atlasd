@@ -8,5 +8,6 @@ deps/jiffy
 deps/nested
 deps/elli*
 deps/meck
+deps/getopt
 
 erl_crash.dump

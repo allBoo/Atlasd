@@ -59,7 +59,7 @@ get_queue_by_name(State) ->
   Data = get_data("/queues/" ++ State#state.vhost ++ "/" ++ State#state.queue, get, State),
   if
     Data == [] -> false;
-    true -> ?DBG("Request success"),
+    true -> %?DBG("Request success"),
       format_queue(Data)
   end.
 

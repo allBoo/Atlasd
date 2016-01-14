@@ -37,12 +37,6 @@ up() ->
           }
         ]
       }
-    },
-    #monitor{
-      name = monitor_os,
-      config = #os_monitor{
-        mem_watermark = 80
-      }
     }
   ]).
 

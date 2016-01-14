@@ -18,7 +18,11 @@
   poll/1,
   poll/2,
   notify/1,
-  notify/2]).
+  notify/2,
+  get_nodes/0,
+  add_node/1,
+  forget_node/1
+]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -71,6 +75,18 @@ notify(Message) ->
 notify(Node, Message) ->
   gen_server:call(?SERVER, {notify, Node, Message}).
 
+%% get list of connected nodes
+get_nodes() ->
+  gen_server:call(?SERVER, get_nodes).
+
+%% add a new node to the cluster
+add_node(Node) ->
+  gen_server:call(?SERVER, {add_node, Node}).
+
+%% remove node from the cluster
+forget_node(Node) ->
+  gen_server:call(?SERVER, {forget_node, Node}).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -104,15 +120,9 @@ init([]) ->
 
   erlang:set_cookie(Node, Cookie),
 
-  Nodes = lists:map(fun(El) ->
-    NodeName = config:get("cluster.name", "atlasd"),
-    list_to_atom(NodeName ++ "@" ++ El)
-  end, config:get("cluster.hosts")),
-  net_kernel:allow(Nodes ++ ['atlasctl@127.0.0.1']),
-
   net_kernel:monitor_nodes(true),
 
-  {ok, #state{node = Node, nodes = Nodes, known = [Node]}}.
+  {ok, #state{node = Node, nodes = [Node], known = [Node]}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -132,9 +142,56 @@ init([]) ->
 
 %% connect to all nodes
 handle_call(connect, _From, State) ->
-  [net_kernel:connect_node(Node) || Node <- State#state.nodes],
+  Node = State#state.node,
+  ClusterNodes = env:get('cluster.nodes', []),
+  Nodes = case lists:member(Node, ClusterNodes) of
+            true -> ClusterNodes;
+            _ ->
+              env:set('cluster.nodes', ClusterNodes ++ [Node]),
+              ClusterNodes ++ [Node]
+          end,
+  ?DBG("Trying to connect to all known nodes ~p", [ClusterNodes]),
+
+  %% close cluster for unknown nodes
+  case env:get('cluster.solid') of
+    true -> net_kernel:allow(Nodes ++ ['atlasctl@127.0.0.1']);
+    _ -> ok
+  end,
+
+  [net_kernel:connect_node(N) || N <- Nodes],
   ok = global:sync(),
-  {reply, ok, State};
+
+  reg:broadcast(node, self(), connected),
+  {reply, ok, State#state{nodes = Nodes}};
+
+%% add a new node
+handle_call({add_node, Node}, _From, State) ->
+  case lists:member(Node, env:get('cluster.nodes', [])) of
+    true ->
+      true = net_kernel:connect_node(Node),
+      {reply, connected, State};
+
+    _ ->
+      Nodes = env:get('cluster.nodes', []) ++ [Node],
+      case env:get('cluster.solid') of
+        true -> net_kernel:allow(Nodes ++ ['atlasctl@127.0.0.1']);
+        _ -> ok
+      end,
+
+      true = net_kernel:connect_node(Node),
+      env:set('cluster.nodes', Nodes),
+
+      {reply, connected, State#state{nodes = Nodes}}
+  end;
+
+
+%% remove node
+handle_call({forget_node, Node}, _From, State) ->
+  Nodes = env:get('cluster.nodes', []) -- [Node],
+  env:set('cluster.nodes', Nodes),
+  gen_server:cast({atlasd, Node}, stop),
+  db_cluster:forget_node(Node),
+  {reply, removed, State#state{nodes = Nodes}};
 
 
 %% send sync request to all known nodes
@@ -199,6 +256,8 @@ handle_cast(Request, State) ->
   {stop, Reason :: term(), NewState :: #state{}}).
 
 handle_info({nodeup, Node}, State) ->
+  global:sync(),
+  gen_server:cast(master, hello), %% forcibly run global names resolution
   Known = case lists:member(Node, State#state.known) of
             false ->
               ?DBG("Found new node ~p~n", [Node]),

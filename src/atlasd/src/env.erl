@@ -14,6 +14,7 @@
 -export([
   init/0,
   get/1,
+  get/2,
   set/2
 ]).
 
@@ -24,7 +25,15 @@ init() ->
 get(Key) ->
   case mnesia:transaction(fun() -> mnesia:select(env, [{#env{key = Key, value = '$1'},[], ['$1']}]) end) of
     {atomic, [Value]} -> Value;
+    {atomic, []} -> false;
     Any -> Any
+  end.
+
+get(Key, Default) ->
+  case mnesia:transaction(fun() -> mnesia:select(env, [{#env{key = Key, value = '$1'},[], ['$1']}]) end) of
+    {atomic, [Value]} -> Value;
+    {atomic, []} -> Default;
+    _ -> Default
   end.
 
 set(Key, Value) ->
