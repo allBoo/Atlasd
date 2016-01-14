@@ -79,7 +79,7 @@ initial_setup(true) ->
 %%--------------------------------------------------------------------
 migrate() ->
   %% db version from env
-  DbVersion = env:get(db_version),
+  DbVersion = env:get(db_version, 0),
   Migrations = lists:seq(DbVersion + 1, ?DB_VERSION),
   migrate(Migrations).
 

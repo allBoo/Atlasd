@@ -13,11 +13,11 @@
 
 -define(OPTS_SPEC, [
   {help, $h, "help", undefined, "Show the program options"},
-  {config, $c, "config", string, "Path to config file for atlasd"},
-  {cluster, $C, "cluster", undefined, "Atlasd cluster name"},
-  {cookie, undefined, "cookie", undefined, "Cookie for a cluster"},
-  {host, $h, "host", undefined, "Host with running atlasd node"},
   {list, $l, "list", undefined, "List available commands"},
+  {config, $c, "config", string, "Path to config file for atlasd"},
+  {cluster, $C, "cluster", string, "Atlasd cluster name"},
+  {host, $h, "host", string, "Host with running atlasd node"},
+  {cookie, undefined, "cookie", string, "Cookie for a cluster"},
   {command, undefined, undefined, string, "Command to run (e.g. nodes)"}
 ]).
 
@@ -26,7 +26,9 @@
 %% command functions
 -export([
   help/2,
-  nodes/2
+  nodes/2,
+  connect/2,
+  forget/2
 ]).
 
 
@@ -35,7 +37,7 @@ main(Args) ->
   %?DBG("Options ~p", [Options]),
   %?DBG("Command args ~p", [CommandArgs]),
 
-  execute_command(Options, CommandArgs).
+  execute(Options, CommandArgs).
 
 err_msg(Msg) -> err_msg(Msg, []).
 err_msg(Msg, Opts) ->
@@ -49,19 +51,27 @@ parse_opts(Args) ->
   {ok, {Options, CommandArgs}} = getopt:parse(?OPTS_SPEC, Args),
   [Options, CommandArgs].
 
-execute_command(Options, CommandArgs) ->
-  case proplists:get_value(command, Options) of
-    undefined -> help();
-    X ->
-      Command = list_to_atom(X),
-      case erlang:function_exported(atlasctl, Command, 2) of
-        true ->
-          apply(atlasctl, Command, [Options, CommandArgs]);
+execute(Options, CommandArgs) -> execute(Options, CommandArgs, Options).
 
-        _ ->
-          err_msg("Command ~p is not resolved", [Command])
-      end
+execute([], _, _) -> ok;
+execute([Option | Options], CommandArgs, AllOptions) ->
+  case execute_command(Option, [AllOptions, CommandArgs]) of
+    ok -> execute(Options, CommandArgs, AllOptions);
+    _ -> ok
   end.
+
+execute_command(help, _) -> help(), stop;
+execute_command(list, _) -> list(), stop;
+execute_command({command, X}, [Options, CommandArgs]) ->
+  Command = list_to_atom(X),
+  case erlang:function_exported(atlasctl, Command, 2) of
+    true ->
+      apply(atlasctl, Command, [Options, CommandArgs]);
+
+    _ ->
+      err_msg("Command ~p is not resolved", [Command])
+  end;
+execute_command(_, _) -> ok.
 
 %%%===================================================================
 %%% Config and cluster routine
@@ -170,21 +180,74 @@ epmd_path() ->
 
 help() -> help([], []).
 help(_, _) ->
-  io:format("Atlasd cli interface"),
+  io:format("Atlasd cli interface~n"),
   getopt:usage(?OPTS_SPEC, "atlasctl"),
+  ok.
+
+list() -> list([], []).
+list(_, _) ->
+  io:format("Atlasd cli interface~n"),
+  io:format("List of available commands~n"),
+  io:format("  help\t\tShow the program options~n"),
+  io:format("  nodes\t\tList nodes in a cluster~n"),
+  io:format("  connect\tConnect newly created node to a cluster~n"),
   ok.
 
 
 nodes(Options, _) ->
   Node = connect(Options),
 
-  case rpc:call(Node, atlasd, get_nodes, []) of
-    {ok, Response} ->
-      io:format("List of nodes in cluster~n~p~n", [Response]);
-    {error, Error} ->
-      err_msg(Error);
-    Error ->
-      err_msg("Unknown error ~p", [Error])
+  Response = rpc_call(Node, get_nodes, []),
+  io:format("List of nodes in cluster~n~p~n", [Response]),
+  ok.
+
+connect(Options, Args) ->
+  dbg("Options ~p~n", [Options]),
+  dbg("Args ~p~n", [Args]),
+
+  case Args of
+    [TargetNode | _] ->
+      Node = connect(Options),
+      io:format("Trying to connect to node ~p~n", [TargetNode]),
+      case rpc_call(Node, connect, [TargetNode]) of
+        ok -> io:format("New node ~p is successfully connected to a cluster~n", [TargetNode]);
+        Response -> io:format("~p", [Response])
+      end;
+
+    _ ->
+      err_msg("You should pass the node connect to~n")
   end,
 
   ok.
+
+
+forget(Options, Args) ->
+  case Args of
+    [TargetNode | _] ->
+      Node = connect(Options),
+      io:format("Trying to forget node ~p~n", [TargetNode]),
+      case rpc_call(Node, forget, [TargetNode]) of
+        ok -> io:format("Node ~p is successfully removed from a cluster~n", [TargetNode]);
+        Response -> io:format("~p", [Response])
+      end;
+
+    _ ->
+      err_msg("You should pass the node connect to~n")
+  end,
+
+  ok.
+
+%%%===================================================================
+%%% RPC
+%%%===================================================================
+
+rpc_call(Node, Action, Args) ->
+  case rpc:call(Node, atlasd, Action, Args) of
+    {ok, Response} -> Response;
+    {error, Error} ->
+      err_msg(Error),
+      halt(1);
+    Error ->
+      err_msg("Unknown error '~p'", [Error]),
+      halt(1)
+  end.

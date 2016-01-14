@@ -14,7 +14,7 @@
 
 %% API
 -export([
-  start_link/1,
+  start_link/0,
   mode/0,
   get_memory_info/0
 ]).
@@ -36,7 +36,7 @@
   mem_watermark
 }).
 
-
+-define(DEFAULT_MEM_WATERMARK, 80).
 
 
 %%%===================================================================
@@ -51,9 +51,9 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link(Config :: []) -> {ok, pid()} | ignore | {error, Reason :: term()}).
-start_link(Config) ->
-  gen_fsm:start_link({local, ?MODULE}, ?MODULE, [Config], []).
+-spec(start_link() -> {ok, pid()} | ignore | {error, Reason :: term()}).
+start_link() ->
+  gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 
 mode() -> node.
@@ -75,9 +75,8 @@ mode() -> node.
   {ok, StateName :: atom(), StateData :: #state{}} |
   {ok, StateName :: atom(), StateData :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([Monitor]) ->
-  Config = Monitor#monitor.config,
-  State = #state{mem_watermark = Config#os_monitor.mem_watermark},
+init([]) ->
+  State = #state{mem_watermark = config:get('os.mem_watermark', ?DEFAULT_MEM_WATERMARK, integer)},
   ?DBG("Started os monitor ~w", [State]),
   {ok, monitor, State, 1000}.
 

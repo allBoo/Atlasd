@@ -17,7 +17,8 @@
   start_link/0,
   start_master/0,
   start_slave/0,
-  add_nodes/1
+  add_nodes/1,
+  forget_node/1
 ]).
 
 %% gen_server callbacks
@@ -79,6 +80,16 @@ start_slave() ->
 add_nodes(Nodes) ->
   gen_server:cast(?SERVER, {add_nodes, Nodes}).
 
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Remove node from cluster
+%%
+%% @end
+%%--------------------------------------------------------------------
+forget_node(Node) ->
+  gen_server:cast(?SERVER, {forget_node, Node}).
+  %mnesia:del_table_copy(schema, node@host.domain).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -156,6 +167,9 @@ handle_cast({add_nodes, Nodes}, State) when State#state.role == master ->
   DbNodes = do_add_nodes(Nodes),
   {noreply, State#state{nodes = DbNodes}};
 
+handle_cast({forget_node, Node}, State) when State#state.role == master ->
+  DbNodes = do_remove_node(Node),
+  {noreply, State#state{nodes = DbNodes}};
 
 handle_cast(_Request, State) ->
   {noreply, State}.
@@ -244,25 +258,20 @@ do_add_nodes([Node | Tail]) ->
   do_add_nodes(Tail).
 
 try_to_add_node(Node) ->
+  ?DBG("Reset DB schema on node ~p and create new one", [Node]),
+  gen_server:call({?MODULE, Node}, reset_database),
+
   case mnesia:change_config(extra_db_nodes, [Node]) of
     {ok, _} ->
-      ?DBG("New node ~p connected. Start to copy tables", [Node]),
+      %% make database persistent
+      mnesia:change_table_copy_type(schema, Node, disc_copies),
+
+      ?DBG("New node ~p connected successfully. Start to copy tables", [Node]),
       copy_tables(Node);
-    _ ->
-      ?DBG("Node ~p has several DB schema. Reset it and create new one", [Node]),
-      gen_server:call({?MODULE, Node}, reset_database),
-      case mnesia:change_config(extra_db_nodes, [Node]) of
-        {ok, _} ->
-          %% make database persistent
-          mnesia:change_table_copy_type(schema, Node, disc_copies),
 
-          ?DBG("New node ~p connected successfully. Start to copy tables", [Node]),
-          copy_tables(Node);
-
-        Error ->
-          ?LOG("Error while connection to a new database with reason ~p", [Error]),
-          ?THROW_ERROR(?ERROR_CONNECT_DB)
-      end
+    Error ->
+      ?LOG("Error while connection to a new database with reason ~p", [Error]),
+      ?THROW_ERROR(?ERROR_CONNECT_DB)
   end.
 
 %% copy all tables
@@ -294,3 +303,9 @@ copy_tables(ToNode, [Table | Tables]) ->
       ignore
   end,
   copy_tables(ToNode, Tables).
+
+
+do_remove_node(Node) ->
+  ?DBG("Remove table copies from node ~p", [Node]),
+  mnesia:del_table_copy(schema, Node),
+  mnesia:system_info(running_db_nodes).

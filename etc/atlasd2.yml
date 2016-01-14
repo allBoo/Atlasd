@@ -2,8 +2,7 @@
 ################################### Cluster ###################################
 
 cluster:
-  name: atlasd
-  hosts: ["192.168.2.1", "192.168.2.5"]
+  name: atlasd1
   cookie: "SecretCookie"
 
 #################################### Node #####################################
@@ -11,6 +10,7 @@ cluster:
 node:
   master: true
   worker: false
+  priority: 1
 
 #################################### Paths ####################################
 
@@ -19,7 +19,7 @@ path:
   conf: /apps/atlasd/etc/
 
 # Path to data files
-  data: /tmp/atlasd
+  data: /tmp/atlasd1
 
 # Path to temporary files:
   work: /tmp
@@ -31,8 +31,8 @@ path:
 
 # internal communication port
 inet:
-  host: 192.168.2.5
-  port: 9100
+  host: 192.168.1.11
+  port: 9101
 
 http:
 # Disable HTTP completely:
@@ -42,29 +42,10 @@ http:
   host: 0.0.0.0
 
 # Set a custom port to listen for HTTP traffic:
-  port: 9900
+  port: 9901
 
 ############################## Monitors ###############################
 
-monitors:
-  os:
-    mem_watermark: 80
+os:
+  mem_watermark: 80
 
-  #rabbitmq:
-  #  mode: api
-  #  host: "192.168.2.5"
-  #  user: guest
-  #  pass: guest
-  #
-  #  monitors:
-  #    task-listen-low:
-  #      exchange: parsley
-  #      queue: "ds.conveyer.task.low"
-  #
-  #    task-listen-middle:
-  #      exchange: parsley
-  #      queue: "ds.conveyer.task.middle"
-  #
-  #    task-listen-high:
-  #      exchange: parsley
-  #      queue: "ds.conveyer.task.high"

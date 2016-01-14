@@ -21,7 +21,7 @@ start(_StartType, _StartArgs) ->
   case config:get("node.worker") of
     true ->
       atlasd_sup:start_child(?CHILD(workers_monitor)),
-      atlasd_sup:start_child(?CHILD(monitor_os, [config:monitor(monitor_os)])),
+      atlasd_sup:start_child(?CHILD(monitor_os)),
       atlasd_sup:start_child(?CHILD_SUP(workers_sup));
     _ -> ok
   end,
@@ -36,8 +36,6 @@ start(_StartType, _StartArgs) ->
 
   %% start http-server
   config:get("http.enabled") andalso supervisor:start_child(atlasd_sup, ?CHILD(api)),
-
-  cluster:connect(),
 
   AppSup.
 

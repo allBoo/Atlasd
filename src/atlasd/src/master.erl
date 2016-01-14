@@ -16,7 +16,8 @@
 -export([
   start_link/0,
   elected/0,
-  rebalance/0
+  rebalance/0,
+  resolve_master/3
 ]).
 
 %% gen_server callbacks
@@ -39,7 +40,8 @@
   worker_nodes   :: [node()],                    %% list of worker nodes
   master_nodes   :: [node()],                    %% list of master nodes
   workers        :: [{node(), pid(), Name :: atom()}],    %% current runing workers
-  rebalanced = 0 :: integer()
+  rebalanced = 0 :: integer(),
+  priority   = 0 :: integer()
 }).
 
 %%%===================================================================
@@ -89,14 +91,20 @@ init([]) ->
   reg:bind(node),
   ok = global:sync(),
 
+  %master_sup:stop_child(master_monitors_sup),
+  %master_sup:stop_child(runtime_config),
+
+  cluster:connect(),
+
+  NodePriority = config:get('node.priority', 0, integer),
   case whereis_master() of
     undefined ->
-      ?DBG("No master found. Wait for 15 secs to become as master", []),
-      {ok, #state{role = undefined, master = undefined, master_node = undefined}, 1000};
+      ?DBG("No master found. Wait for cluster connection finished", []),
+      {ok, #state{role = undefined, master = undefined, master_node = undefined, priority = NodePriority}};
 
     {Master, MasterNode} ->
       ?DBG("Detected master ~p", [Master]),
-      {ok, #state{role = slave, master = Master, master_node = MasterNode}}
+      {ok, #state{role = slave, master = Master, master_node = MasterNode, priority = NodePriority}}
   end.
 
 
@@ -133,6 +141,13 @@ handle_call(get_nodes, _From, State) when State#state.role == master ->
   {reply, {ok, maps:from_list(Nodes)}, State};
 
 
+handle_call({connect, Node}, _From, State) when State#state.role == master ->
+  {reply, {ok, cluster:add_node(Node)}, State};
+
+handle_call({forget, Node}, _From, State) when State#state.role == master ->
+  {reply, {ok, cluster:forget_node(Node)}, State};
+
+
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
@@ -152,8 +167,9 @@ handle_call(_Request, _From, State) ->
 %% i am a master ^_^
 handle_cast(elected, State) ->
   db_cluster:start_master(),
-  master_sup:start_child(?CHILD(runtime_config)),
-  master_sup:start_monitors(),
+  master_sup:start_child(runtime_config),
+  master_sup:start_global_child(master_monitors_sup),
+  master_sup:start_global_child(cluster_monitor),
   %% make rebalance event
   timer:apply_after(1000, master, rebalance, []),
   {noreply, cluster_handshake(State#state{worker_config = runtime_config:workers()})};
@@ -264,10 +280,14 @@ handle_info(timeout, State) when State#state.role == master ->
   rebalance(),
   {noreply, State};
 
+%% cluster connected
+handle_info({_From, connected}, State) when State#state.role == undefined ->
+  ?DBG("Cluster is connected. Wait for 2sec to become as a master"),
+  {noreply, State, 2000};
 
 %% nodes state messages
 handle_info({_From, {node, _NodeStatus, _Node}}, State) when State#state.role == undefined ->
-  {noreply, try_become_master(State)};
+  {noreply, State};
 
 handle_info({_From, {node, down, Node}}, State) when State#state.role == slave,
                                                      State#state.master_node == Node ->
@@ -322,7 +342,8 @@ handle_info(Info, State) ->
 %%--------------------------------------------------------------------
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
     State :: #state{}) -> term()).
-terminate(_Reason, _State) ->
+terminate(Reason, _State) ->
+  ?DBG("MASTER IS TERMINATING WITH REASON ~p", [Reason]),
   ok.
 
 %%--------------------------------------------------------------------
@@ -344,7 +365,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 try_become_master(State) ->
-  case global:register_name(?MODULE, self()) of
+  case global:register_name(?MODULE, self(), fun resolve_master/3) of
     yes ->
       ?DBG("Elected as master ~p [~p]", [node(), self()]),
       elected(),
@@ -361,6 +382,18 @@ whereis_master() ->
     undefined -> undefined;
     Pid -> {Pid, node(Pid)}
   end.
+
+
+resolve_master(Name, Pid1, Pid2) ->
+  Priority1 = (sys:get_state(Pid1))#state.priority,
+  Priority2 = (sys:get_state(Pid2))#state.priority,
+  {Min, Max} = if
+                 Priority1 < Priority2 -> {Pid1, Pid2};
+                 true -> {Pid2, Pid1}
+               end,
+  ?LOG("Master conflict. Terminating ~w\n", [{Name, Min}]),
+  exit(Min, kill),
+  Max.
 
 
 cluster_handshake(State) ->

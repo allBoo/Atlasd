@@ -1,24 +1,19 @@
 %%%-------------------------------------------------------------------
-%%% @author alboo
-%%% @copyright (C) 2015, <COMPANY>
+%%% @author alex
+%%% @copyright (C) 2016, <COMPANY>
 %%% @doc
 %%%
 %%% @end
-%%% Created : 04. июн 2015 1:30
+%%% Created : 14. Янв. 2016 21:43
 %%%-------------------------------------------------------------------
--module(monitor_rabbitmq).
--author("alboo").
+-module(cluster_monitor).
+-author("alex").
 
 -behaviour(gen_fsm).
 -include_lib("atlasd.hrl").
 
 %% API
--export([
-  start_link/1,
-  mode/0,
-  child_specs/1,
-  process_queue/2
-]).
+-export([start_link/0]).
 
 %% gen_fsm callbacks
 -export([init/1,
@@ -31,25 +26,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {
-  mode = api :: api | native,
-  host = "127.0.0.1",
-  port = "15672",
-  user = "guest",
-  pass = "guest",
-  vhost = "%2f",
-  minutes_to_add_consumers = 1000,
-  exchange,
-  queue,
-  task
-}).
-
-
--record(queue, {name,
-  messages,
-  consumers,
-  publish_rate,
-  ack_rate}).
+-record(state, {}).
 
 %%%===================================================================
 %%% API
@@ -63,35 +40,14 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link(Config :: []) -> {ok, pid()} | ignore | {error, Reason :: term()}).
-start_link(Config) ->
-  gen_fsm:start_link(?MODULE, [Config], []).
-
-
-%% @static
-%% return monitor type
-mode() -> master.
-
-
-%% generates children specs for the supervisor
-child_specs(Config) ->
-  lists:map(fun(Task) ->
-                  {list_to_atom("monitor_" ++ Task#rabbitmq_monitor_task.task), {?MODULE, start_link, [
-                    #state{
-                      mode = Config#rabbitmq_monitor.mode,
-                      host = Config#rabbitmq_monitor.host,
-                      port = Config#rabbitmq_monitor.port,
-                      user = Config#rabbitmq_monitor.user,
-                      pass = Config#rabbitmq_monitor.pass,
-                      vhost = Task#rabbitmq_monitor_task.vhost,
-                      minutes_to_add_consumers = Task#rabbitmq_monitor_task.minutes_to_add_consumers,
-                      exchange = Task#rabbitmq_monitor_task.exchange,
-                      queue = Task#rabbitmq_monitor_task.queue,
-                      task = Task#rabbitmq_monitor_task.task
-                    }
-                  ]}, permanent, 5000, worker, [?MODULE]}
-                end,
-    Config#rabbitmq_monitor.tasks).
+-spec(start_link() -> {ok, pid()} | ignore | {error, Reason :: term()}).
+start_link() ->
+  case global:whereis_name(?MODULE) of
+    undefined -> gen_fsm:start_link({global, ?MODULE}, ?MODULE, [], []);
+    Pid ->
+      ?DBG("cluster_monitor is already started ~p", [Pid]),
+      ignore
+  end.
 
 %%%===================================================================
 %%% gen_fsm callbacks
@@ -110,9 +66,9 @@ child_specs(Config) ->
   {ok, StateName :: atom(), StateData :: #state{}} |
   {ok, StateName :: atom(), StateData :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([Config]) ->
-  ?DBG("Started rabbitmq monitor ~p", [Config]),
-  {ok, monitor, Config, 10000}.
+init([]) ->
+  ?DBG("Started cluster monitor"),
+  {ok, monitor, #state{}, 1000}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -130,10 +86,15 @@ init([Config]) ->
   {next_state, NextStateName :: atom(), NextState :: #state{},
     timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
-
 monitor(_Event, State) ->
-  process_queue(rabbitmq_api:get_queue_by_name(State), State),
-  {next_state, monitor, State, 10000}.
+  ClusterNodes = env:get('cluster.nodes', []),
+  ConnectedNodes = cluster:get_nodes(),
+  UnknownNodes = ClusterNodes -- ConnectedNodes,
+
+  ?DBG("Try to connect to missed nodes ~p", [UnknownNodes]),
+  [net_kernel:connect_node(N) || N <- UnknownNodes],
+
+  {next_state, monitor, State, 1000}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -225,63 +186,3 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-process_queue(Queue, State) when Queue /= false ->
-  %?DBG("Processing queue: ~p~n", [Queue#queue.name]),
-  Estimated_time =
-    if
-      Queue#queue.ack_rate == 0.0 -> -1;
-      true -> round((Queue#queue.messages / Queue#queue.ack_rate) / 60)
-    end,
-
-  if
-    Queue#queue.messages =:= 0, Queue#queue.consumers =/= 0, Queue#queue.publish_rate =:= 0.0 ->
-%%      ?DBG("~w messages, ~w consumers, consumers must be killed ~n", [
-%%        Queue#queue.messages,
-%%        Queue#queue.consumers
-%%      ]),
-      atlasd:change_workers_count(State#state.task, 0);
-
-    Queue#queue.messages =:= 0, Queue#queue.consumers > 1, Queue#queue.publish_rate =/= 0.0 ->
-%%      ?DBG("~w messages, ~w consumers, publish rate ~w, consumers must be decreased ~n", [
-%%        Queue#queue.messages,
-%%        Queue#queue.consumers,
-%%        Queue#queue.publish_rate
-%%      ]),
-      atlasd:decrease_workers(State#state.task);
-    true -> ok
-  end,
-
-  if
-    Queue#queue.messages =/= 0, Queue#queue.consumers =:= 0 ->
-%%    ?DBG("~p consumers, ~p messages, consumers must be added ~n", [
-%%      Queue#queue.consumers,
-%%      Queue#queue.messages
-%%    ]),
-      atlasd:change_workers_count(State#state.task, 1);
-    true -> ok
-  end,
-
-  if
-    Estimated_time > State#state.minutes_to_add_consumers ->
-%%    ?DBG("Estimate time ~p (more than ~p minutes), consumers must be added ~n", [
-%%      Estimated_time, State#state.minutes_to_add_consumers
-%%    ]),
-    atlasd:increase_workers(State#state.task);
-    true -> ok
-  end,
-
-%%  ?DBG("--------------------------------------------------"),
-%%  ?DBG("Publish rate: ~p/s ~n", [Queue#queue.publish_rate]),
-%%  ?DBG("Ack rate: ~p/s ~n", [Queue#queue.ack_rate]),
-%%  ?DBG("Messages count: ~p ~n", [Queue#queue.messages]),
-%%  ?DBG("Consumers count: ~p ~n", [Queue#queue.consumers]),
-%%  ?DBG("--------------------------------------------------"),
-%%  ?DBG("Estimated time: ~p minutes ~n", [Estimated_time]),
-%%  ?DBG("--------------------------------------------------"),
-  ok;
-
-process_queue(Queue, State) when Queue == false ->
-  ?DBG("Queue proccess failed ~p", [State]),
-  failed.
-

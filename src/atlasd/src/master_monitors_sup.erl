@@ -31,7 +31,12 @@
 -spec(start_link() ->
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 start_link() ->
-  supervisor:start_link({global, ?MODULE}, ?MODULE, []).
+  case global:whereis_name(?MODULE) of
+    undefined -> supervisor:start_link({global, ?MODULE}, ?MODULE, []);
+    Pid ->
+      ?DBG("master_monitors_sup is already started ~p", [Pid]),
+      ignore
+  end.
 
 %%%===================================================================
 %%% Supervisor callbacks

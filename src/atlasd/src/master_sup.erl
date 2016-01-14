@@ -15,8 +15,9 @@
 %% API
 -export([
   start_link/0,
-  start_monitors/0,
-  start_child/1
+  start_global_child/1,
+  start_child/1,
+  stop_child/1
 ]).
 
 %% Supervisor callbacks
@@ -39,27 +40,36 @@ start_link() ->
 
 
 %% starts the monitors
-start_monitors() ->
+start_global_child(Module) ->
   %% kill instances of the running monitors
-  case global:whereis_name(master_monitors_sup) of
+  case global:whereis_name(Module) of
     undefined -> ok;
 
     Pid ->
-      supervisor:terminate_child({master_sup, node(Pid)}, master_monitors_sup),
-      supervisor:delete_child({master_sup, node(Pid)}, master_monitors_sup)
+      supervisor:terminate_child({master_sup, node(Pid)}, Module),
+      supervisor:delete_child({master_sup, node(Pid)}, Module)
   end,
 
-  supervisor:start_child(?MODULE, ?CHILD_SUP(master_monitors_sup)).
+  supervisor:start_child(?MODULE, ?CHILD_SUP_T(Module)).
 
 
-start_child(ChildSpec) ->
-  case supervisor:start_child(?MODULE, ChildSpec) of
-    {error, Reason} ->
-      ?LOG("Can not start child process with reason ~p", [Reason]),
-      ?THROW_ERROR(?ERROR_SYSTEM_ERROR);
-    _ -> ok
+start_child(Module) ->
+  case whereis(Module) of
+    undefined ->
+      case supervisor:start_child(?MODULE, ?CHILD(Module)) of
+        {error, Reason} ->
+          ?LOG("Can not start child process with reason ~p", [Reason]),
+          ?THROW_ERROR(?ERROR_SYSTEM_ERROR);
+        _ -> ok
+      end;
+
+    Pid ->
+      ?DBG("Process ~p is already started with pid ~p", [Module, Pid]),
+      ok
   end.
 
+stop_child(Module) ->
+  supervisor:terminate_child(?MODULE, Module).
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -88,3 +98,4 @@ init([]) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
