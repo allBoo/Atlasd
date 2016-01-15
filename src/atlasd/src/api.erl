@@ -5,8 +5,7 @@
 
 start_link() ->
   BasicauthConfig = [
-    {auth_fun, fun api:auth_fun/3},
-    {auth_realm, <<"Admin Area">>} % optional
+    {auth_fun, fun api:auth_fun/3}
   ],
 
   Config = [
@@ -29,13 +28,13 @@ start_link() ->
 
 auth_fun(Req, User, Password) ->
   case elli_request:path(Req) of
-    [<<"hello">>, <<"world">>] -> password_check(User, Password);
-    _                 -> ok
+    [<<"nodes">>] -> password_check(User, Password);
+    _ -> ok
   end.
 
 password_check(User, Password) ->
   case {User, Password} of
     {undefined, undefined}      -> unauthorized;
-    {<<"admin">>, <<"admin">>}  -> ok;
+    {<<"admin">>, <<"secret">>}  -> ok;
     {User, Password}            -> forbidden
   end.
