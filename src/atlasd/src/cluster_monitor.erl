@@ -91,7 +91,7 @@ monitor(_Event, State) ->
   ConnectedNodes = cluster:get_nodes(),
   UnknownNodes = ClusterNodes -- ConnectedNodes,
 
-  ?DBG("Try to connect to missed nodes ~p", [UnknownNodes]),
+  %?DBG("Try to connect to missed nodes ~p", [UnknownNodes]),
   [net_kernel:connect_node(N) || N <- UnknownNodes],
 
   {next_state, monitor, State, 1000}.

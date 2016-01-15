@@ -23,6 +23,7 @@
 
   get_nodes_stat/1,
   get_node_stat/1,
+  get_node_stat/2,
   get_worker_avg_stat/1,
   get_workers/1
 ]).
@@ -108,6 +109,16 @@ get_nodes_stat(Nodes) when is_list(Nodes) ->
 
 get_node_stat(Node) when is_atom(Node) ->
   gen_server:call(?SERVER, {get_node_stat, Node}).
+
+get_node_stat(Node, printable) when is_atom(Node) ->
+  Stat = get_node_stat(Node),
+  CpuPrint = ?record_to_map(cpu_info),
+  MemPrint = ?record_to_map(memory_info),
+  #{
+    cpu => CpuPrint(Stat#os_state.cpu_info),
+    mem => MemPrint(Stat#os_state.memory_info),
+    overloaded => Stat#os_state.overloaded
+  }.
 
 
 %%--------------------------------------------------------------------

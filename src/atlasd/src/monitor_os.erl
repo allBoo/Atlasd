@@ -100,7 +100,7 @@ monitor(_Event, State) ->
   Memory_info = get_memory_info(),
   Cpu_info = #cpu_info{
     load_average = cpu_sup:avg1() / 256,
-    per_cpu = cpu_sup:util([per_cpu])
+    per_cpu = lists:map(fun(El) -> element(2, El) end, cpu_sup:util([per_cpu]))
   },
 
   Os_state = #os_state{

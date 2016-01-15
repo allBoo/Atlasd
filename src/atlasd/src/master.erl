@@ -135,7 +135,7 @@ handle_call(get_nodes, _From, State) when State#state.role == master ->
       master_node => Node =:= node(),
       is_worker   => lists:member(Node, State#state.worker_nodes),
       is_master   => lists:member(Node, State#state.master_nodes),
-      stats       => statistics:get_node_stat(Node)
+      stats       => statistics:get_node_stat(Node, printable)
     }}
   end, gen_server:call(cluster, get_nodes)),
   {reply, {ok, maps:from_list(Nodes)}, State};

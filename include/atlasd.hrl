@@ -14,6 +14,7 @@
 %%% ====================================================================
 -include_lib("log.hrl").
 -include_lib("error.hrl").
+-include_lib("utils.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 
 %% Helper macro for declaring children of supervisor
