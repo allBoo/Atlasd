@@ -235,12 +235,12 @@ start_database() ->
           case file:make_dir(DataPath) of
             ok -> ok;
             {error, Reason} ->
-              ?LOG("Can not create data dir with reason ~p", [Reason]),
+              ?ERR("Can not create data dir with reason ~p", [Reason]),
               ?THROW_ERROR(?ERROR_DATA_PATH)
           end
       end;
     {error, Reason} ->
-      ?LOG("Can not access data path with reason ~p", [Reason]),
+      ?ERR("Can not access data path with reason ~p", [Reason]),
       ?THROW_ERROR(?ERROR_DATA_PATH)
   end,
 
@@ -270,7 +270,7 @@ try_to_add_node(Node) ->
       copy_tables(Node);
 
     Error ->
-      ?LOG("Error while connection to a new database with reason ~p", [Error]),
+      ?ERR("Error while connection to a new database with reason ~p", [Error]),
       ?THROW_ERROR(?ERROR_CONNECT_DB)
   end.
 

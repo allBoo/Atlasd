@@ -11,11 +11,10 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-  AppSup = atlasd_sup:start_link(),
-  %observer:start(),
   ok = start_epmd(),
 
-
+  AppSup = atlasd_sup:start_link(),
+  %observer:start(),
 
   %% start worker sup
   case config:get("node.worker") of
@@ -37,6 +36,8 @@ start(_StartType, _StartArgs) ->
   %% start http-server
   config:get("http.enabled") andalso supervisor:start_child(atlasd_sup, ?CHILD(api)),
 
+  ?LOG("Node ~p started and ready for a work", [node()]),
+
   AppSup.
 
 stop(_State) ->
@@ -57,7 +58,7 @@ epmd_path() ->
     false ->
       case os:find_executable(Name) of
         false ->
-          ?LOG("Could not find epmd.", []),
+          ?ERR("Could not find epmd.", []),
           halt(1);
         GlobalEpmd ->
           GlobalEpmd

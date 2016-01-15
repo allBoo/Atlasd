@@ -145,6 +145,7 @@ notify_state(Type, State) when is_atom(Type) ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([]) ->
+  bootstrap:start(),
   {ok, #state{}}.
 
 %%--------------------------------------------------------------------

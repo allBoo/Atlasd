@@ -111,7 +111,7 @@ child_specs(Config) ->
   {ok, StateName :: atom(), StateData :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([Config]) ->
-  ?DBG("Started rabbitmq monitor ~p", [Config]),
+  ?DBG("Started rabbitmq monitor for worker ~p", [Config#state.task]),
   {ok, monitor, Config, 10000}.
 
 %%--------------------------------------------------------------------

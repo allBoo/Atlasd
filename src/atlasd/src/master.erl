@@ -391,7 +391,7 @@ resolve_master(Name, Pid1, Pid2) ->
                  Priority1 < Priority2 -> {Pid1, Pid2};
                  true -> {Pid2, Pid1}
                end,
-  ?LOG("Master conflict. Terminating ~w\n", [{Name, Min}]),
+  ?WARN("Master conflict. Terminating ~w\n", [{Name, Min}]),
   exit(Min, kill),
   Max.
 
@@ -541,7 +541,7 @@ run_workers(Count, WorkerCfg, Instances, Nodes) ->
       run_worker_at(WorkerCfg, Count, AvailableNodes);
 
     true ->
-      ?LOG("Can not find proper nodes for worker ~p", [WorkerCfg#worker.name]),
+      ?WARN("Can not find proper nodes for worker ~p", [WorkerCfg#worker.name]),
       error
   end.
 
@@ -585,7 +585,7 @@ stop_workers(Count, WorkerCfg, Instances) ->
       stop_worker_at(WorkerCfg, Count, StopWorkers);
 
     true ->
-      ?LOG("Can't find proper nodes to stop worker ~p", [WorkerCfg#worker.name]),
+      ?WARN("Can't find proper nodes to stop worker ~p", [WorkerCfg#worker.name]),
       error
   end.
 
