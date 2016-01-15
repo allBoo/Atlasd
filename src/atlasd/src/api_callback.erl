@@ -3,8 +3,7 @@
 
 -include_lib("elli/include/elli.hrl").
 -behaviour(elli_handler).
-
--include_lib("kernel/include/file.hrl").
+-include_lib("atlasd.hrl").
 
 %%
 %% ELLI REQUEST CALLBACK
@@ -17,13 +16,10 @@ handle(Req, _Args) ->
 %% Route METHOD & PATH to the appropriate clause
 handle('GET',[<<"nodes">>], _Req) ->
   {Response_status, Nodes} = atlasd:get_nodes(),
-  Nodes_filtered = maps:map(
-    fun(Node_name, Node_data) -> maps:without([stats], Node_data) end,
-    Nodes
-  ),
+
   Response = jiffy:encode(#{
     <<"status">> => Response_status,
-    <<"nodes">> => Nodes_filtered
+    <<"nodes">> => Nodes
   }),
   {ok, [], Response};
 
