@@ -28,7 +28,8 @@
   help/2,
   nodes/2,
   connect/2,
-  forget/2
+  forget/2,
+  worker_log/2
 ]).
 
 
@@ -236,6 +237,30 @@ forget(Options, Args) ->
   end,
 
   ok.
+
+worker_log(Options, Args) ->
+  case Args of
+    [TargetWorker | _] ->
+      connect(Options),
+      WorkerPid = list_to_pid(TargetWorker),
+      TargetNode = node(WorkerPid),
+      dbg("Node ~p workers ~p~n",[TargetNode, rpc:call(TargetNode, workers_sup, get_workers, [])]),
+      S = self(),
+      F = fun(N) -> S ! N end,
+      rpc:call(TargetNode, worker, set_log_handler, [WorkerPid, F, atlasctl]),
+      loop();
+    _ ->
+      err_msg("You should pass the worker~n")
+  end,
+
+  ok.
+
+loop() ->
+  receive
+    Msg ->
+      dbg("Message ~p", [Msg]),
+      loop()
+  end.
 
 %%%===================================================================
 %%% RPC

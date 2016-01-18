@@ -15,8 +15,6 @@ start(_StartType, _StartArgs) ->
   %observer:start(),
   ok = start_epmd(),
 
-
-
   %% start worker sup
   case config:get("node.worker") of
     true ->
