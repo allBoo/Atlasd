@@ -58,7 +58,7 @@ start_child(Module) ->
     undefined ->
       case supervisor:start_child(?MODULE, ?CHILD(Module)) of
         {error, Reason} ->
-          ?LOG("Can not start child process with reason ~p", [Reason]),
+          ?ERR("Can not start child process with reason ~p", [Reason]),
           ?THROW_ERROR(?ERROR_SYSTEM_ERROR);
         _ -> ok
       end;

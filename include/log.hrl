@@ -5,7 +5,9 @@
 %%%
 %%% Author contact: alboo@list.ru
 
--define(DBG(F, A), io:format("(~p ~w:~b) " ++ F ++ "~n", [self(), ?MODULE, ?LINE | A])).
--define(DBG(F), io:format("(~p ~w:~b) " ++ F ++ "~n", [self(), ?MODULE, ?LINE])).
+-define(DBG(F, A), log:debug(F, A)).
+-define(DBG(F), log:debug(F)).
 %-define(DBG(F, A), ok).
--define(LOG(F, A), io:format("(~p ~w:~b) " ++ F ++ "~n", [self(), ?MODULE, ?LINE | A])).
+-define(LOG(F, A), log:info(F, A)).
+-define(WARN(F, A), log:warning(F, A)).
+-define(ERR(F, A), log:error(F, A)).

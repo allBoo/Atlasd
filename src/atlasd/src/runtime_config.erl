@@ -249,7 +249,7 @@ run_query(QH) ->
   case Result of
     {atomic, List} -> List;
     Error ->
-      ?LOG("Query error ~p", [Error]),
+      ?ERR("Query error ~p", [Error]),
       ?THROW_ERROR(?ERROR_QUERY)
   end.
 

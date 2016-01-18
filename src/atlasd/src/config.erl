@@ -330,7 +330,7 @@ parse_worker_config(Worker, [{"max_mem", Value} | WorkerCfg]) when is_list(Value
     {Mb, "M"} -> parse_worker_config(Worker#worker{max_mem = {m, Mb}}, WorkerCfg);
     {Gb, "G"} -> parse_worker_config(Worker#worker{max_mem = {g, Gb}}, WorkerCfg);
     _ ->
-      ?LOG("Unknown worker max_mem config value ~p", [Value]),
+      ?WARN("Unknown worker max_mem config value ~p", [Value]),
       parse_worker_config(Worker, WorkerCfg)
   end;
 
@@ -341,7 +341,7 @@ parse_worker_config(Worker, [{"monitor", Value} | WorkerCfg]) when is_list(Value
   parse_worker_config(Worker#worker{monitor = parse_monitor_configs(Value)}, WorkerCfg);
 
 parse_worker_config(Worker, [Unknown | WorkerCfg]) ->
-  ?LOG("Unknown worker config value ~p", [Unknown]),
+  ?WARN("Unknown worker config value ~p", [Unknown]),
   parse_worker_config(Worker, WorkerCfg).
 
 
@@ -361,7 +361,7 @@ parse_procs_config(Procs, [{"each_node", Value} | ProcsConfig]) when is_integer(
   parse_procs_config(Procs#worker_procs{each_node = Value}, ProcsConfig);
 
 parse_procs_config(Procs, [Unknown | ProcsConfig]) ->
-  ?LOG("Unknown worker procs config value ~p", [Unknown]),
+  ?WARN("Unknown worker procs config value ~p", [Unknown]),
   parse_procs_config(Procs, ProcsConfig).
 
 %% worker monitor config parser

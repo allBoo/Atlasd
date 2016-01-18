@@ -19,7 +19,7 @@ start_link() ->
 start_child(ChildSpec) ->
     case supervisor:start_child(?MODULE, ChildSpec) of
         {error, Reason} ->
-            ?LOG("Can not start child process with reason ~p", [Reason]),
+            ?ERR("Can not start child process with reason ~p", [Reason]),
             ?THROW_ERROR(?ERROR_SYSTEM_ERROR);
         _ -> ok
     end.

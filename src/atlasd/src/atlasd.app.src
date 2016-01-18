@@ -6,7 +6,7 @@
   {applications, [
                   kernel,
                   stdlib,
-                  sasl,
+                  lager,
                   inets,
                   os_mon,
                   gproc,

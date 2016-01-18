@@ -122,6 +122,8 @@ init([]) ->
 
   net_kernel:monitor_nodes(true),
 
+  ?DBG("Node ~p started", [Node]),
+
   {ok, #state{node = Node, nodes = [Node], known = [Node]}}.
 
 %%--------------------------------------------------------------------
