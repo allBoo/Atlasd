@@ -17,6 +17,7 @@
   start_link/0,
   is_worker/0,
   is_master/0,
+  get_workers/1,
   worker_started/1,
   worker_stoped/1,
   start_worker/1,
@@ -29,7 +30,8 @@
   get_runtime/1,
   get_nodes/0,
   connect/1,
-  forget/1
+  forget/1,
+  set_workers/1
 ]).
 
 %% gen_server callbacks
@@ -91,6 +93,7 @@ change_workers_count(Worker, Count) when is_record(Worker, worker), is_integer(C
                                          is_list(Worker), is_integer(Count), Count >= 0 ->
   gen_server:cast(?SERVER, {change_workers_count, {Worker, Count}}).
 
+
 %% workers must use this function to inform master about itself
 worker_started({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
   gen_server:cast(?SERVER, {worker_started, Worker}).
@@ -101,6 +104,12 @@ worker_stoped({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
 %% get runtime config variable from master node
 get_runtime(Request) ->
   gen_server:call(?SERVER, {get_runtime, Request}).
+
+%% returns list of running workers
+get_workers(Node) when is_list(Node) ->
+  get_workers(list_to_atom(Node));
+get_workers(Node) ->
+  gen_server:call(?SERVER, {get_workers, Node}).
 
 %% returns list of connected nodes
 get_nodes() ->
@@ -113,6 +122,10 @@ connect(Node) ->
 %% remove node from cluster
 forget(Node) ->
   gen_server:call(?SERVER, {forget, Node}).
+
+%% set new workers specification
+set_workers(Workers) ->
+  gen_server:call(?SERVER, {set_workers, Workers}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -146,7 +159,7 @@ notify_state(Type, State) when is_atom(Type) ->
   {stop, Reason :: term()} | ignore).
 init([]) ->
   bootstrap:start(),
-  {ok, #state{}}.
+  {ok, #state{master = global:whereis_name(master)}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -178,15 +191,20 @@ handle_call(get_workers, _From, State) ->
     _ -> {reply, ignore, State}
   end;
 
-
-handle_call({get_runtime, Request}, _From, State) when is_pid(State#state.master) ->
-  {reply, gen_server:call(State#state.master, {get_runtime, Request}), State};
+handle_call({get_workers, Node}, _From, State) when is_pid(State#state.master) ->
+  {reply, gen_server:call(State#state.master, {get_workers, Node}), State};
+handle_call({get_workers, _Node}, _From, State) ->
+  {reply, {error, "master node is not started"}, State};
 
 
 handle_call(get_nodes, _From, State) when is_pid(State#state.master) ->
   {reply, gen_server:call(State#state.master, get_nodes), State};
 handle_call(get_nodes, _From, State) ->
   {reply, {error, "master node is not started"}, State};
+
+
+handle_call({get_runtime, Request}, _From, State) when is_pid(State#state.master) ->
+  {reply, gen_server:call(State#state.master, {get_runtime, Request}), State};
 
 
 handle_call({connect, Node}, _From, State) when is_pid(State#state.master) ->
@@ -207,6 +225,12 @@ handle_call({forget, Node}, _From, State) when is_pid(State#state.master) ->
   {reply, gen_server:call(State#state.master, {forget, NodeAtom}), State};
 handle_call({forget, _Node}, _From, State) ->
   {reply, {error, "You should use this command only on working cluster with master nodes to connect new nodes to this cluster"}, State};
+
+
+handle_call({set_workers, Workers}, _From, State) when is_pid(State#state.master) ->
+  {reply, gen_server:cast(State#state.master, {set_workers, Workers}), State};
+handle_call({set_workers, _Workers}, _From, State) ->
+  {reply, {error, "master node is not started"}, State};
 
 
 handle_call(Request, From, State) ->
@@ -253,9 +277,9 @@ handle_cast({restart_worker, WorkerPid}, State) when is_pid(WorkerPid) ->
 
 %% increase workers count on one
 handle_cast({increase_workers, Worker}, State) ->
-  ?DBG("Try to increase workers ~p count on 1", [Worker]),
   case resolve_worker(Worker) of
     WorkerCnf when is_record(WorkerCnf, worker) ->
+      ?DBG("Try to increase workers ~p count on 1", [Worker]),
       gen_server:cast(State#state.master, {increase_workers, WorkerCnf#worker.name});
     _ ->
       neok
@@ -265,9 +289,9 @@ handle_cast({increase_workers, Worker}, State) ->
 
 %% decrease workers count on one
 handle_cast({decrease_workers, Worker}, State) ->
-  ?DBG("Try to decrease workers ~p count on 1", [Worker]),
   case resolve_worker(Worker) of
     WorkerCnf when is_record(WorkerCnf, worker) ->
+      ?DBG("Try to decrease workers ~p count on 1", [Worker]),
       gen_server:cast(State#state.master, {decrease_workers, WorkerCnf#worker.name});
     _ ->
       neok
@@ -277,9 +301,9 @@ handle_cast({decrease_workers, Worker}, State) ->
 
 %% change workers count
 handle_cast({change_workers_count, {Worker, Count}}, State) ->
-  ?DBG("Try to change workers ~p count to ~p", [Worker, Count]),
   case resolve_worker(Worker) of
     WorkerCnf when is_record(WorkerCnf, worker) ->
+      ?DBG("Try to change workers ~p count to ~p", [Worker, Count]),
       gen_server:cast(State#state.master, {change_workers_count, {WorkerCnf#worker.name, Count}});
     _ ->
       neok

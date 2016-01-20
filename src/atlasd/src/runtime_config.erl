@@ -22,7 +22,9 @@
 
   workers/0,
   worker/1,
-  set_worker/1
+  set_worker/1,
+
+  delete/1
 ]).
 
 %% gen_server callbacks
@@ -85,7 +87,7 @@ monitor(MonitorName) when is_atom(MonitorName) ->
 
 
 set_monitor(MonitorName, MonitorData) when is_record(MonitorName, monitor) ->
-  gen_server:cast(?SERVER, {set_worker, MonitorName, MonitorData}).
+  gen_server:cast(?SERVER, {set_monitor, MonitorName, MonitorData}).
 
 
 %%--------------------------------------------------------------------
@@ -102,6 +104,10 @@ worker(WorkerName) when is_atom(WorkerName) ->
 
 set_worker(Worker) when is_record(Worker, worker) ->
   gen_server:cast(?SERVER, {set_worker, Worker}).
+
+
+delete(Item) ->
+  gen_server:cast(?SERVER, {delete, Item}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -178,6 +184,10 @@ handle_cast({set_monitor, Monitor}, State) when is_record(Monitor, monitor) ->
   save(Monitor),
   {noreply, State};
 
+
+handle_cast({delete, Item}, State) ->
+  do_delete(Item),
+  {noreply, State};
 
 handle_cast(_Request, State) ->
   {noreply, State}.
@@ -257,3 +267,7 @@ run_query(QH) ->
 save(Item) ->
   mnesia:transaction(fun() -> mnesia:write(Item) end).
 
+do_delete(Item) ->
+  Tab = element(1, Item),
+  Key = element(2, Item),
+  mnesia:transaction(fun() -> mnesia:delete({Tab, Key}) end).

@@ -244,7 +244,11 @@ start_database() ->
       ?THROW_ERROR(?ERROR_DATA_PATH)
   end,
 
-  ok = mnesia:start([{dir, DataPath}]).
+  ok = mnesia:start([{dir, DataPath}]),
+  ?DBG("Wait while mnesia starts all tables"),
+  ok = mnesia:wait_for_tables(mnesia:system_info(local_tables), infinity),
+  ?DBG("All tables are loaded"),
+  ok.
 
 
 do_add_nodes([]) -> mnesia:system_info(running_db_nodes);

@@ -17,7 +17,10 @@
   start_link/0,
   elected/0,
   rebalance/0,
-  resolve_master/3
+  resolve_master/3,
+
+  get_workers/1,
+  whereis_master/0
 ]).
 
 %% gen_server callbacks
@@ -33,15 +36,16 @@
 -define(MAX_REBALANCE, 15000000). %% microseconds
 
 -record(state, {
-  role           :: master | slave | undefined,  %% current node role
-  master         :: pid() | undefined,           %% master pid
-  master_node    :: node() | undefined,          %% master node
-  worker_config  :: [#worker{}],                 %% base workers config
-  worker_nodes   :: [node()],                    %% list of worker nodes
-  master_nodes   :: [node()],                    %% list of master nodes
-  workers        :: [{node(), pid(), Name :: atom()}],    %% current runing workers
-  rebalanced = 0 :: integer(),
-  priority   = 0 :: integer()
+  role           = undefined :: master | slave | undefined,  %% current node role
+  master         = undefined :: pid() | undefined,           %% master pid
+  master_node    = undefined :: node() | undefined,          %% master node
+  worker_config  = []        :: [#worker{}],                 %% base workers config
+  worker_nodes   = []        :: [node()],                    %% list of worker nodes
+  master_nodes   = []        :: [node()],                    %% list of master nodes
+  workers        = []        :: [{node(), pid(), Name :: atom()}],    %% current runing workers
+  rebalanced     = 0         :: integer(),
+  rebalancer     = undefined :: timer:tref() | undefined,
+  priority       = 0         :: integer()
 }).
 
 %%%===================================================================
@@ -67,6 +71,12 @@ elected() ->
 rebalance() ->
   gen_server:cast(?SERVER, rebalance).
 
+
+%% returns list of running workers
+get_workers(Node) when is_list(Node) ->
+  get_workers(list_to_atom(Node));
+get_workers(Node) ->
+  gen_server:call(?SERVER, {get_workers, Node}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -141,6 +151,14 @@ handle_call(get_nodes, _From, State) when State#state.role == master ->
   {reply, {ok, maps:from_list(Nodes)}, State};
 
 
+handle_call({get_workers, all}, _From, State) ->
+  Workers = cluster:poll(get_workers),
+  {reply, {ok, Workers}, State};
+handle_call({get_workers, Node}, _From, State) ->
+  Workers = cluster:poll(Node, get_workers),
+  {reply, {ok, Workers}, State};
+
+
 handle_call({connect, Node}, _From, State) when State#state.role == master ->
   {reply, {ok, cluster:add_node(Node)}, State};
 
@@ -148,7 +166,8 @@ handle_call({forget, Node}, _From, State) when State#state.role == master ->
   {reply, {ok, cluster:forget_node(Node)}, State};
 
 
-handle_call(_Request, _From, State) ->
+handle_call(Request, _From, State) ->
+  ?DBG("Unknown call to master ~p", [Request]),
   {reply, ok, State}.
 
 
@@ -181,7 +200,7 @@ handle_cast({worker_started, {Node, Pid, Name}}, State) when State#state.role ==
   RuningWorkers = State#state.workers ++ [{Node, Pid, Name}],
   ?DBG("New worker ~p[~p] started at node ~p", [Name, Pid, Node]),
   ?DBG("RuningWorkers ~p", [RuningWorkers]),
-  {noreply, State#state{workers = RuningWorkers}, rebalance_after(State#state.rebalanced)};
+  {noreply, rebalance_after(State#state{workers = RuningWorkers})};
 
 %% worker stoped on any node
 handle_cast({worker_stoped, {Node, Pid, Name}}, State) when State#state.role == master,
@@ -190,7 +209,7 @@ handle_cast({worker_stoped, {Node, Pid, Name}}, State) when State#state.role == 
   statistics:forget(Node, Name, Pid),
   ?DBG("Worker ~p[~p] stoped at node ~p", [Name, Pid, Node]),
   ?DBG("RuningWorkers ~p", [RuningWorkers]),
-  {noreply, State#state{workers = RuningWorkers}, rebalance_after(State#state.rebalanced)};
+  {noreply, rebalance_after(State#state{workers = RuningWorkers})};
 
 
 %% change workers count
@@ -198,7 +217,7 @@ handle_cast({change_workers_count, {WorkerName, Count}}, State) when State#state
                                                                      is_atom(WorkerName), is_integer(Count), Count >= 0 ->
   WorkerConfig = change_worker_procs_count(State#state.worker_config, WorkerName, Count),
 
-  {noreply, State#state{worker_config = WorkerConfig}, rebalance_after(State#state.rebalanced)};
+  {noreply, rebalance_after(State#state{worker_config = WorkerConfig})};
 
 
 %% change workers count
@@ -208,7 +227,7 @@ handle_cast({increase_workers, WorkerName}, State) when State#state.role == mast
   InstancesCount = length(Instances),
   WorkerConfig = change_worker_procs_count(State#state.worker_config, WorkerName, InstancesCount + 1),
 
-  {noreply, State#state{worker_config = WorkerConfig}, rebalance_after(State#state.rebalanced)};
+  {noreply, rebalance_after(State#state{worker_config = WorkerConfig})};
 
 
 %% change workers count
@@ -221,7 +240,16 @@ handle_cast({decrease_workers, WorkerName}, State) when State#state.role == mast
                    end ,
   WorkerConfig = change_worker_procs_count(State#state.worker_config, WorkerName, InstancesCount),
 
-  {noreply, State#state{worker_config = WorkerConfig}, rebalance_after(State#state.rebalanced)};
+  {noreply, rebalance_after(State#state{worker_config = WorkerConfig})};
+
+
+%% set new workers config
+handle_cast({set_workers, Workers}, State) when State#state.role == master ->
+  ?LOG("Trying to setup new workers config ~p", [Workers]),
+  %% TODO make group operations
+  [runtime_config:delete(W) || W <- runtime_config:workers()],
+  [runtime_config:set_worker(W) || W <- Workers],
+  {noreply, do_rebalance(State#state{worker_config = runtime_config:workers()})};
 
 
 %% Recieve notifications
@@ -251,7 +279,8 @@ handle_cast(rebalance, State) when State#state.role == master ->
   {noreply, do_rebalance(State)};
 
 %%
-handle_cast(_Request, State) ->
+handle_cast(Request, State) ->
+  ?DBG("Unknown cast to master ~p", [Request]),
   {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -278,27 +307,28 @@ handle_info(timeout, State) when State#state.role == undefined ->
 %% rebalance required
 handle_info(timeout, State) when State#state.role == master ->
   rebalance(),
-  {noreply, State};
+  {noreply, State, ?REBALANCE};
 
 %% cluster connected
 handle_info({_From, connected}, State) when State#state.role == undefined ->
-  ?DBG("Cluster is connected. Wait for 2sec to become as a master"),
-  {noreply, State, 2000};
+  ?LOG("Cluster is connected. Trying to become as a master"),
+  {noreply, try_become_master(State)};
 
 %% nodes state messages
 handle_info({_From, {node, _NodeStatus, _Node}}, State) when State#state.role == undefined ->
   {noreply, State};
 
-handle_info({_From, {node, down, Node}}, State) when State#state.role == slave,
-                                                     State#state.master_node == Node ->
-  ?DBG("Master node ~p down, try to become master", [Node]),
-  statistics:forget(Node),
-  {noreply, try_become_master(State)};
-
 
 handle_info({_From, {node, up, Node}}, State) when State#state.role == master ->
-  ?DBG("New node has connected ~p. Send master notification", [Node]),
-  {noreply, node_handshake(Node, State), rebalance_after(State#state.rebalanced)};
+  ?LOG("New node has connected ~p. Send master notification", [Node]),
+  {noreply, rebalance_after(node_handshake(Node, State))};
+
+
+handle_info({_From, {node, down, Node}}, State) when State#state.role == slave,
+                                                     State#state.master_node == Node ->
+  ?LOG("Master node ~p down, try to become master", [Node]),
+  statistics:forget(Node),
+  {noreply, try_become_master(State)};
 
 
 handle_info({_From, {node, down, Node}}, State) when State#state.role == master ->
@@ -323,7 +353,8 @@ handle_info({_From, {node, down, Node}}, State) when State#state.role == master 
       RunningWorkers = State#state.workers
   end,
 
-  {noreply, State#state{worker_nodes = WorkerNodes, workers = RunningWorkers, master_nodes = MasterNodes}, rebalance_after(State#state.rebalanced)};
+  {noreply, rebalance_after(State#state{worker_nodes = WorkerNodes, workers = RunningWorkers, master_nodes = MasterNodes})};
+
 
 handle_info(Info, State) ->
   ?DBG("MASTER RECIEVE ~p", [Info]),
@@ -343,7 +374,7 @@ handle_info(Info, State) ->
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
     State :: #state{}) -> term()).
 terminate(Reason, _State) ->
-  ?DBG("MASTER IS TERMINATING WITH REASON ~p", [Reason]),
+  ?WARN("MASTER IS TERMINATING WITH REASON ~p", [Reason]),
   ok.
 
 %%--------------------------------------------------------------------
@@ -465,24 +496,51 @@ node_handshake(Node, State) ->
 
 
 %% rebalancing
-rebalance_after(LastRebalanced) when LastRebalanced == 0 ->
+rebalance_after(State) ->
+  Time = get_rebalance_after(State#state.rebalanced),
+
+  State#state.rebalancer =/= undefined andalso
+    timer:cancel(State#state.rebalancer),
+
+  {ok, Rebalancer} = if
+                       Time > 0 -> timer:apply_after(Time, master, rebalance, []);
+                       true ->
+                         rebalance(),
+                         {ok, undefined}
+                     end,
+
+  State#state{rebalancer = Rebalancer}.
+
+get_rebalance_after(0) ->
   ?REBALANCE;
 
-rebalance_after(LastRebalanced) ->
-  LastRun = timer:now_diff(os:timestamp(), LastRebalanced),
+get_rebalance_after(Rebalanced) ->
+  LastRun = timer:now_diff(os:timestamp(), Rebalanced),
   if
-    LastRun > ?MAX_REBALANCE ->
-      rebalance(),
-      ?REBALANCE;
+    LastRun > ?MAX_REBALANCE -> 0;
     true -> ?REBALANCE
   end.
 
 
 do_rebalance(State) ->
   ?DBG("REBALANCE CLUSTER", []),
+  %% ensure there are no unknown workers
+  ensure_all_known(State#state.worker_config, State#state.workers),
   %% ensure all workers are runing
   ensure_runing(State#state.worker_config, State#state.workers, State#state.worker_nodes),
   State#state{rebalanced = os:timestamp()}.
+
+
+ensure_all_known(WorkersConfig, Workers) ->
+  KnownWorkersNames = lists:map(fun(Worker) -> Worker#worker.name end, WorkersConfig),
+  UnknownWorkers = lists:filter(fun({_Node, _Pid, Name}) ->
+                                  not lists:member(Name, KnownWorkersNames)
+                                end, Workers),
+
+  length(UnknownWorkers) > 0 andalso
+      ?DBG("There are unknown workers in a cluster. List of unknown workers: ~p", [UnknownWorkers]),
+
+  do_stop_workers(UnknownWorkers).
 
 
 ensure_runing([], _, _) ->
@@ -518,13 +576,13 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) ->
 
     InstancesCount < MinInstances ->
       NewCount = MinInstances - InstancesCount,
-      ?DBG("Count instances of ~p id lower than ~p",
+      ?DBG("Count instances of ~p is lower than ~p",
         [WorkerCfg#worker.name, MinInstances]),
       run_workers(NewCount, WorkerCfg, Instances, Nodes);
 
     InstancesCount > MaxInstances ->
       KillCount = InstancesCount - MaxInstances,
-      ?DBG("Count instances of ~p id higher than ~p",
+      ?DBG("Count instances of ~p is higher than ~p",
         [WorkerCfg#worker.name, MaxInstances]),
       stop_workers(KillCount, WorkerCfg, Instances)
   end,
@@ -582,7 +640,7 @@ stop_workers(Count, WorkerCfg, Instances) ->
   if
     length(StopWorkers) > 0 ->
       ?DBG("Stop ~p workers ~p on ~p", [Count, WorkerCfg#worker.name, StopWorkers]),
-      stop_worker_at(WorkerCfg, Count, StopWorkers);
+      stop_worker_at(Count, StopWorkers);
 
     true ->
       ?WARN("Can't find proper nodes to stop worker ~p", [WorkerCfg#worker.name]),
@@ -590,15 +648,26 @@ stop_workers(Count, WorkerCfg, Instances) ->
   end.
 
 
-stop_worker_at(_, _, []) ->
+stop_worker_at(_, []) ->
   ok;
 
-stop_worker_at(_, 0, _Instances) ->
+stop_worker_at(0, _Instances) ->
   ok;
 
-stop_worker_at(Worker, Count, [{Node, WorkerPid, _} | Instances]) ->
-  cluster:notify(Node, {stop_worker, WorkerPid}),
-  stop_worker_at(Worker, Count - 1, Instances).
+stop_worker_at(Count, [Worker | Instances]) ->
+  do_stop_worker(Worker),
+  stop_worker_at(Count - 1, Instances).
+
+
+do_stop_worker({Node, Pid, Name}) ->
+  ?LOG("Trying to stop worker ~p (~p) on node ~p", [Name, Pid, Node]),
+  cluster:notify(Node, {stop_worker, Pid}).
+
+
+do_stop_workers([]) -> ok;
+do_stop_workers([Worker | Workers]) ->
+  do_stop_worker(Worker),
+  do_stop_workers(Workers).
 
 
 %% return list of worker instances

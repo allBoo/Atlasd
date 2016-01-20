@@ -6,7 +6,8 @@
   {applications, [
                   kernel,
                   stdlib,
-                  yamerl
+                  yamerl,
+                  jiffy
                  ]},
   {env, [
     {config, "/apps/atlasd/etc/atlasd.yml"}
