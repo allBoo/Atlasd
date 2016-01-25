@@ -32,9 +32,7 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-  red = [],
-  yellow = [],
-  green = []
+  reasons = []
 }).
 %%%===================================================================
 %%% API
@@ -62,7 +60,7 @@ red(Reason, Comment) when is_atom(Reason) ->
   gen_server:call({global, ?SERVER}, {red, Reason, Comment}).
 yellow(Reason, Comment) when is_atom(Reason) ->
   gen_server:call({global, ?SERVER}, {yellow, Reason, Comment}).
-green(Reason, Comment) ->
+green(Reason, Comment) when is_atom(Reason) ->
   gen_server:call({global, ?SERVER}, {green, Reason, Comment}).
 get_status() ->
   gen_server:call({global, ?SERVER}, get_status).
@@ -88,7 +86,7 @@ get_reasons() ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([]) ->
-  {ok, #state{red = [], yellow = [], green = []}}.
+  {ok, #state{reasons = []}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -107,33 +105,35 @@ init([]) ->
   {stop, Reason :: term(), NewState :: #state{}}).
 
 
-handle_call({red, Reason, Comment}, _From, State) ->
-  Reasons = State#state.red,
-  {reply, ok, State#state{red = lists:append(Reasons, [{Reason, Comment}])}};
+handle_call({Color, Reason, Comment}, _From, State) ->
+  NewReasons = case lists:keytake(Reason, 1, State#state.reasons) of
+    {value, {R, {_, Com}}, FilteredTuple} ->
+      lists:append(FilteredTuple, [{R, {Color, Com}}]);
+    false ->
+      lists:append(State#state.reasons, [{Reason, {Color, Comment}}])
+  end,
 
-handle_call({yellow, Reason, Comment}, _From, State) ->
-  Reasons = State#state.yellow,
-  {reply, ok, State#state{yellow = lists:append(Reasons, [{Reason, Comment}])}};
-
-handle_call({green, Reason, Comment}, _From, State) ->
-  Reasons = State#state.green,
-  {reply, ok, State#state{green = lists:append(Reasons, [{Reason, Comment}])}};
+  {reply, ok, State#state{reasons = NewReasons}};
 
 
 handle_call(get_status, _From, State) ->
+  Red = [Color || {_, {Color, _}} <- State#state.reasons, Color == red],
+  Yellow = [Color || {_, {Color, _}} <- State#state.reasons, Color == yellow],
+  Green = [Color || {_, {Color, _}} <- State#state.reasons, Color == green],
+
   if
-    length(State#state.red) > 0 ->
+    length(Red) > 0 ->
       {reply, red, State};
-    length(State#state.yellow) > 0 ->
+    length(Yellow) > 0 ->
       {reply, yellow, State};
-    length(State#state.green) > 0 ->
+    length(Green) > 0 ->
       {reply, green, State};
     true ->
-      {reply, empty, State}
+      empty
   end;
 
 handle_call(get_reasons, _From, State) ->
-  {reply, State, State};
+  {reply, State#state.reasons, State};
 
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
