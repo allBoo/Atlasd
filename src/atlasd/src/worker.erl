@@ -17,7 +17,12 @@
   start_link/1,
   get_name/1,
   get_proc_pid/1,
-  get_config/1
+  get_config/1,
+  get_log/2,
+  log_enable/1,
+  log_disable/1,
+  set_log_handler/3,
+  remove_log_handler/2
 ]).
 
 %% gen_server callbacks
@@ -33,7 +38,11 @@
   port = undefined,
   pid  = undefined,
   last_line = <<>>,
-  incomplete = <<>>
+  incomplete = <<>>,
+  log = [],
+  log_enabled = true,
+  log_size = 10,
+  log_handlers = []
 }).
 
 %%%===================================================================
@@ -63,7 +72,21 @@ get_proc_pid(WorkerRef) when is_pid(WorkerRef) ->
 get_config(WorkerRef) when is_pid(WorkerRef) ->
   gen_server:call(WorkerRef, get_config).
 
+log_enable(WorkerRef) when is_pid(WorkerRef) ->
+  gen_server:call(WorkerRef, log_enable).
 
+log_disable(WorkerRef) when is_pid(WorkerRef) ->
+  gen_server:call(WorkerRef, log_disable).
+
+
+get_log(WorkerRef, LineId) when is_pid(WorkerRef) ->
+  gen_server:call(WorkerRef, {get_log, LineId}).
+
+set_log_handler(WorkerRef, Handler, Name) when is_pid(WorkerRef) ->
+  gen_server:call(WorkerRef, {set_log_handler, Handler, Name}).
+
+remove_log_handler(WorkerRef, Name) when is_pid(WorkerRef) ->
+  gen_server:call(WorkerRef, {remove_log_handler, Name}).
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -120,9 +143,33 @@ handle_call(get_proc_pid, _From, State) ->
 handle_call(get_config, _From, State) ->
   {reply, State#state.config, State};
 
+handle_call({get_log, LastLineId}, _From, State) ->
+  Log = [{LogLineId, LogLine} || {LogLineId, LogLine} <- State#state.log, LogLineId > LastLineId],
+  {reply, Log, State};
+
+handle_call(log_enable, _From, State) ->
+  {noreply, State#state{log_enabled = true}};
+
+handle_call(log_disable, _From, State) ->
+  {noreply, State#state{log_enabled = false}};
+
+handle_call({set_log_handler, Handler, Name}, _From, State) ->
+  Exists = [{N, H} || {N, H} <- State#state.log_handlers, N == Name],
+
+  LogHandlers = if
+    Exists /= [] ->
+      State#state.log_handlers;
+    true ->
+      lists:append(State#state.log_handlers, [{Name, Handler}])
+  end,
+
+  {reply, ok, State#state{log_handlers = LogHandlers}};
+
+handle_call({remove_log_handler, Name}, _From, State) ->
+  {noreply, State#state{log_handlers = [{N, H} || {N, H} <- State#state.log_handlers, N /= Name]}};
+
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
-
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
@@ -152,14 +199,35 @@ handle_cast(_Request, State) ->
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
 
-handle_info({Port, {data, {eol, Data}}}, State) when Port == State#state.port ->
+handle_info({Port, {data, {eol, Data}}}, State) when Port == State#state.port, State#state.log_enabled =:= true ->
   CurrentLog = State#state.incomplete,
-  CompleteLog = <<CurrentLog/binary, Data/binary>>,
-  ?DBG("complete stdout ~p", [CompleteLog]),
-  {noreply, State#state{incomplete = <<>>, last_line = CompleteLog}};
+  LogLine = <<CurrentLog/binary, Data/binary>>,
 
+  lists:foreach(
+    fun({_Name, Handler}) ->
+      Handler(LogLine)
+    end,
+    State#state.log_handlers),
 
-handle_info({Port, {data, {noeol, Data}}}, State) when Port == State#state.port ->
+  NewLineId = case length(State#state.log) > 0 of
+    true -> {LineId, _} = lists:last(State#state.log), LineId+1;
+    _ -> 0
+  end,
+  CompleteLog = {NewLineId, LogLine},
+
+  AllLines = lists:append(State#state.log, [CompleteLog]),
+  Log = if
+    length(AllLines) > State#state.log_size ->
+      lists:sublist(AllLines, 1 + (length(AllLines) - State#state.log_size), State#state.log_size + 1);
+    true ->
+      AllLines
+  end,
+
+  %?DBG("complete log ~p", [Log]),
+  %?DBG("complete stdout ~p", [CompleteLog]),
+  {noreply, State#state{incomplete = <<>>, last_line = CompleteLog, log = Log }};
+
+handle_info({Port, {data, {noeol, Data}}}, State) when Port == State#state.port, State#state.log_enabled =:= true ->
   CurrentLog = State#state.incomplete,
   %?DBG("incomplete stdout ~p", [CurrentLog]),
   {noreply, State#state{incomplete = <<CurrentLog/binary, Data/binary>>}};
