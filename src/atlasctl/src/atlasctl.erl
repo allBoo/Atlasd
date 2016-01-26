@@ -31,6 +31,7 @@
   connect/2,
   forget/2,
   workers/2,
+  monitors/2,
   get_runtime/2
 ]).
 
@@ -248,7 +249,19 @@ workers(Options, Args) ->
   end,
   ok.
 
+monitors(_Options, []) ->
+  io:format("Available options are: config, export, import~n");
+monitors(Options, Args) ->
+  [Cmd | CmdArgs] = Args,
+  case list_to_atom(Cmd) of
+    config -> monitors:config(Options, CmdArgs);
+    export -> monitors:export(Options, CmdArgs);
+    import -> monitors:import(Options, CmdArgs);
 
+    E ->
+      util:err_msg("Unknown monitors command ~p", [E])
+  end,
+  ok.
 
 get_runtime(_Options, []) ->
   util:err_msg("Empty config key");

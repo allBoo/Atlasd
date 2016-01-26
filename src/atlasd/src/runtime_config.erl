@@ -19,6 +19,7 @@
   monitors/0,
   monitor/1,
   set_monitor/2,
+  set_monitor/1,
 
   workers/0,
   worker/1,
@@ -88,6 +89,8 @@ monitor(MonitorName) when is_atom(MonitorName) ->
 
 set_monitor(MonitorName, MonitorData) when is_record(MonitorName, monitor) ->
   gen_server:cast(?SERVER, {set_monitor, MonitorName, MonitorData}).
+set_monitor(Monitor) when is_record(Monitor, monitor) ->
+  gen_server:cast(?SERVER, {set_monitor, Monitor}).
 
 
 %%--------------------------------------------------------------------
