@@ -106,14 +106,8 @@ init([]) ->
 
 
 handle_call({Color, Reason, Comment}, _From, State) ->
-  NewReasons = case lists:keytake(Reason, 1, State#state.reasons) of
-    {value, {R, {_, Com}}, FilteredTuple} ->
-      lists:append(FilteredTuple, [{R, {Color, Com}}]);
-    false ->
-      lists:append(State#state.reasons, [{Reason, {Color, Comment}}])
-  end,
-
-  {reply, ok, State#state{reasons = NewReasons}};
+  ReasonsMap = maps:from_list(State#state.reasons),
+  {reply, ok, State#state{reasons = maps:to_list(maps:put(Reason, {Color, Comment}, ReasonsMap))}};
 
 
 handle_call(get_status, _From, State) ->
