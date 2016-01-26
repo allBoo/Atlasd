@@ -11,3 +11,6 @@ deps/meck
 deps/getopt
 
 erl_crash.dump
+
+atlasctl
+rel/files/atlasctl

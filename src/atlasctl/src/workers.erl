@@ -13,6 +13,7 @@
 %% API
 -export([
   list/2,
+  restart/2,
   config/2,
   export/2,
   import/2
@@ -27,6 +28,23 @@ list(Options, Args) ->
   Node = atlasctl:connect(Options),
   io:format("Workers list on node ~p~n", [TargetNode]),
   Response = util:rpc_call(Node, master, get_workers, [TargetNode]),
+  io:format("~p~n", [Response]).
+
+
+restart(Options, []) ->
+  Node = atlasctl:connect(Options),
+  io:format("Soft Restart all workers on all nodes", []),
+  Response = util:rpc_call(Node, restart_workers, []),
+  io:format("~p~n", [Response]);
+restart(Options, ["hard" | _]) ->
+  Node = atlasctl:connect(Options),
+  io:format("Hard Restart all workers on all nodes", []),
+  Response = util:rpc_call(Node, restart_workers_hard, []),
+  io:format("~p~n", [Response]);
+restart(Options, Workers) ->
+  Node = atlasctl:connect(Options),
+  io:format("Restart workers ~p on all nodes", [Workers]),
+  Response = util:rpc_call(Node, restart_workers, [Workers]),
   io:format("~p~n", [Response]).
 
 

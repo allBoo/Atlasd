@@ -235,11 +235,11 @@ handle_info({Port, {data, {noeol, Data}}}, State) when Port == State#state.port,
 
 %% port is terminated
 handle_info({'EXIT', Port, Reason}, State) when is_port(Port), Port == State#state.port ->
-  ?DBG("Command is terminated with reason ~p", [Reason]),
+  ?WARN("Command is terminated with reason ~p", [Reason]),
   {stop, shutdown, State#state{port = undefined, pid = undefined}};
 
 handle_info({Port, {exit_status, ExitStatus}}, State) when is_port(Port), Port == State#state.port ->
-  ?DBG("Command is terminated with exit status ~p", [ExitStatus]),
+  ?WARN("Command is terminated with exit status ~p", [ExitStatus]),
   {stop, shutdown, State#state{port = undefined, pid = undefined}};
 
 
@@ -297,19 +297,19 @@ start_worker(State) ->
     Port = open_port({spawn, Worker#worker.command}, [stream, binary, exit_status, {line, 1024}]),%%nouse_stdio
     {os_pid, Pid} = erlang:port_info(Port, os_pid),
 
-    ?DBG("Worker ~p started on port ~p with pid ~p", [Worker#worker.name, Port, Pid]),
+    ?LOG("Worker ~p started on port ~p with pid ~p", [Worker#worker.name, Port, Pid]),
 
     {ok, State#state{port = Port, pid = Pid}}
   catch
     _:Error ->
-      ?DBG("Error '~p' occured while starting worker", [Error]),
+      ?ERR("Error '~p' occured while starting worker", [Error]),
       {error, {worker, Error}, State#state{port = undefined, pid = undefined}}
   end.
 
 
 stop_worker(State) ->
   Worker = (State#state.config)#worker.name,
-  ?DBG("Kill worker ~p [~p]", [Worker, State#state.pid]),
+  ?LOG("Kill worker ~p [~p]", [Worker, State#state.pid]),
 
   os:cmd(io_lib:format("kill -9 ~p", [State#state.pid])),
   port_close(State#state.port),
@@ -335,13 +335,13 @@ stop_worker(State) ->
 
 
 do_terminate_self(Reason, State) ->
-  ?DBG("Terminate worker with reason ~p", [Reason]),
+  ?LOG("Terminate worker with reason ~p", [Reason]),
   case stop_worker(State) of
     {ok, NewState} ->
       NewState;
 
     {error, Error, NewState} ->
-      ?DBG("Error while terminating worker ~p", [Error]),
+      ?ERR("Error while terminating worker ~p", [Error]),
       NewState
   end.
 

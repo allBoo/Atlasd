@@ -252,6 +252,20 @@ handle_cast({set_workers, Workers}, State) when State#state.role == master ->
   {noreply, do_rebalance(State#state{worker_config = runtime_config:workers()})};
 
 
+%% restart workers on all nodes
+handle_cast(restart_workers, State) when State#state.role == master ->
+  do_restart_workers(State#state.workers),
+  {noreply, State};
+
+handle_cast({restart_workers, Workers}, State) when State#state.role == master ->
+  Running = lists:filter(fun({_, _, Name}) -> lists:member(Name, Workers) end, State#state.workers),
+  do_restart_workers(Running),
+  {noreply, State};
+
+handle_cast(restart_workers_hard, State) when State#state.role == master ->
+  do_restart_workers_hard(State#state.workers),
+  {noreply, State};
+
 %% Recieve notifications
 handle_cast({notify_state, Node, {worker_state, WorkerState}}, State) when State#state.role == master, is_record(WorkerState, worker_state) ->
   statistics:worker_state(Node, WorkerState),
@@ -487,12 +501,14 @@ node_handshake(Node, State) ->
       RuningWorkers = State#state.workers ++
         [{Node, Pid, Name} || {Pid, Name} <- cluster:poll(Node, get_workers)],
       ?DBG("RuningWorkers ~p", [RuningWorkers]);
+
     _    ->
       ?DBG("Node ~p is not a worker. Ignore it", [Node]),
-      WorkerNodes = State#state.worker_nodes
+      WorkerNodes = State#state.worker_nodes,
+      RuningWorkers = State#state.workers
   end,
 
-  State#state{master_nodes = MasterNodes, worker_nodes = WorkerNodes}.
+  State#state{master_nodes = MasterNodes, worker_nodes = WorkerNodes, workers = RuningWorkers}.
 
 
 %% rebalancing
@@ -687,3 +703,19 @@ change_worker_procs_count(WorkersConfig, WorkerName, Count) ->
               Worker#worker{procs = Procs}
             end,
     WorkersConfig).
+
+
+do_restart_worker({Node, Pid, Name}) ->
+  ?LOG("Trying to restart worker ~p (~p) on node ~p", [Name, Pid, Node]),
+  cluster:notify(Node, {restart_worker, Pid}).
+
+do_restart_workers([]) -> ok;
+do_restart_workers([Worker | Workers]) ->
+  do_restart_worker(Worker),
+  do_restart_workers(Workers).
+
+do_restart_workers_hard([]) -> ok;
+do_restart_workers_hard([{Node, Pid, Name} | Workers]) ->
+  ?LOG("Trying to hard restart worker ~p (~p) on node ~p", [Name, Pid, Node]),
+  cluster:notify(Node, {restart_worker_hard, Pid}),
+  do_restart_workers_hard(Workers).
