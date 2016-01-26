@@ -31,7 +31,8 @@
   connect/2,
   forget/2,
   workers/2,
-  get_runtime/2
+  get_runtime/2,
+  worker_log/2
 ]).
 
 
@@ -232,6 +233,30 @@ forget(Options, Args) ->
 
   ok.
 
+worker_log(Options, Args) ->
+  case Args of
+    [TargetWorker | _] ->
+      connect(Options),
+      WorkerPid = list_to_pid(TargetWorker),
+      TargetNode = node(WorkerPid),
+      %util:dbg("Node ~p workers ~p~n",[TargetNode, rpc:call(TargetNode, workers_sup, get_workers, [])]),
+      S = self(),
+      F = fun(N) -> S ! N end,
+      rpc:call(TargetNode, worker, set_log_handler, [WorkerPid, F, atlasctl]),
+      loop();
+    _ ->
+      util:err_msg("You should pass the worker~n")
+  end,
+
+  ok.
+
+loop() ->
+  receive
+    Msg ->
+      util:dbg("Message ~p", [Msg]),
+      loop()
+  end.
+
 
 workers(_Options, []) ->
   io:format("Available options are: list, config, add, set, delete~n");
@@ -256,3 +281,4 @@ get_runtime(Options, Args) ->
   [ConfigKey | _] = Args,
   Node = atlasctl:connect(Options),
   util:rpc_call(Node, get_runtime, [ConfigKey]).
+
