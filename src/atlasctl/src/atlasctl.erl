@@ -25,10 +25,13 @@
 -export([main/1]).
 %% command functions
 -export([
+  connect/1,
   help/2,
   nodes/2,
   connect/2,
-  forget/2
+  forget/2,
+  workers/2,
+  get_runtime/2
 ]).
 
 
@@ -38,14 +41,6 @@ main(Args) ->
   %?DBG("Command args ~p", [CommandArgs]),
 
   execute(Options, CommandArgs).
-
-err_msg(Msg) -> err_msg(Msg, []).
-err_msg(Msg, Opts) ->
-  io:format("ERROR: " ++ Msg ++ "~n", Opts).
-
-dbg(Msg) -> dbg(Msg, []).
-dbg(Msg, Opts) ->
-  io:format("DEBUG: " ++ Msg ++ "~n", Opts).
 
 parse_opts(Args) ->
   {ok, {Options, CommandArgs}} = getopt:parse(?OPTS_SPEC, Args),
@@ -69,7 +64,7 @@ execute_command({command, X}, [Options, CommandArgs]) ->
       apply(atlasctl, Command, [Options, CommandArgs]);
 
     _ ->
-      err_msg("Command ~p is not resolved", [Command])
+      util:err_msg("Command ~p is not resolved", [Command])
   end;
 execute_command(_, _) -> ok.
 
@@ -89,11 +84,11 @@ locate_config_paths(Paths) ->
   select_config(Exists, Paths).
 
 select_config([], Paths) ->
-  err_msg("Can not locate config file on paths ~p", [Paths]),
+  util:err_msg("Can not locate config file on paths ~p", [Paths]),
   halt(1);
 select_config(Paths, _) ->
   Path = lists:nth(1, Paths),
-  dbg("Using config ~p", [Path]),
+  util:dbg("Using config ~p", [Path]),
   Path.
 
 
@@ -105,14 +100,14 @@ load_config(Options) ->
   application:ensure_all_started(yamerl),
   Path = proplists:get_value(config, Options),
   Config = read_config(locate_config(Path)),
-  dbg("CONFIG ~p", [Config]),
+  util:dbg("CONFIG ~p", [Config]),
   Config.
 
 get_and_check_value(Key, Values, Msg) ->
   Value = proplists:get_value(Key, Values),
   if
     Value == undefined ->
-      err_msg(Msg),
+      util:err_msg(Msg),
       halt(1);
     true -> Value
   end.
@@ -142,13 +137,13 @@ connect(Options) ->
     {true, pong} ->
       ok;
     {false,pong} ->
-      err_msg("Failed to connect to node ~p", [TargetNode]),
+      util:err_msg("Failed to connect to node ~p", [TargetNode]),
       halt(1);
     {_, pang} ->
-      err_msg("Node ~p not responding to pings.", [TargetNode]),
+      util:err_msg("Node ~p not responding to pings.", [TargetNode]),
       halt(1)
   end,
-  dbg("Connected to node ~p", [TargetNode]),
+  util:dbg("Connected to node ~p", [TargetNode]),
   TargetNode.
 
 
@@ -197,25 +192,25 @@ list(_, _) ->
 nodes(Options, _) ->
   Node = connect(Options),
 
-  Response = rpc_call(Node, get_nodes, []),
+  Response = util:rpc_call(Node, get_nodes, []),
   io:format("List of nodes in cluster~n~p~n", [Response]),
   ok.
 
 connect(Options, Args) ->
-  dbg("Options ~p~n", [Options]),
-  dbg("Args ~p~n", [Args]),
+  util:dbg("Options ~p~n", [Options]),
+  util:dbg("Args ~p~n", [Args]),
 
   case Args of
     [TargetNode | _] ->
       Node = connect(Options),
       io:format("Trying to connect to node ~p~n", [TargetNode]),
-      case rpc_call(Node, connect, [TargetNode]) of
+      case util:rpc_call(Node, connect, [TargetNode]) of
         ok -> io:format("New node ~p is successfully connected to a cluster~n", [TargetNode]);
         Response -> io:format("~p", [Response])
       end;
 
     _ ->
-      err_msg("You should pass the node connect to~n")
+      util:err_msg("You should pass the node connect to~n")
   end,
 
   ok.
@@ -226,28 +221,38 @@ forget(Options, Args) ->
     [TargetNode | _] ->
       Node = connect(Options),
       io:format("Trying to forget node ~p~n", [TargetNode]),
-      case rpc_call(Node, forget, [TargetNode]) of
+      case util:rpc_call(Node, forget, [TargetNode]) of
         ok -> io:format("Node ~p is successfully removed from a cluster~n", [TargetNode]);
         Response -> io:format("~p", [Response])
       end;
 
     _ ->
-      err_msg("You should pass the node connect to~n")
+      util:err_msg("You should pass the node connect to~n")
   end,
 
   ok.
 
-%%%===================================================================
-%%% RPC
-%%%===================================================================
 
-rpc_call(Node, Action, Args) ->
-  case rpc:call(Node, atlasd, Action, Args) of
-    {ok, Response} -> Response;
-    {error, Error} ->
-      err_msg(Error),
-      halt(1);
-    Error ->
-      err_msg("Unknown error '~p'", [Error]),
-      halt(1)
-  end.
+workers(_Options, []) ->
+  io:format("Available options are: list, config, add, set, delete~n");
+workers(Options, Args) ->
+  [Cmd | CmdArgs] = Args,
+  case list_to_atom(Cmd) of
+    list -> workers:list(Options, CmdArgs);
+    config -> workers:config(Options, CmdArgs);
+    export -> workers:export(Options, CmdArgs);
+    import -> workers:import(Options, CmdArgs);
+
+    E ->
+      util:err_msg("Unknown workers command ~p", [E])
+  end,
+  ok.
+
+
+
+get_runtime(_Options, []) ->
+  util:err_msg("Empty config key");
+get_runtime(Options, Args) ->
+  [ConfigKey | _] = Args,
+  Node = atlasctl:connect(Options),
+  util:rpc_call(Node, get_runtime, [ConfigKey]).
