@@ -297,6 +297,10 @@ handle_cast({notify_state, Node, {os_state, OsState}}, State) when State#state.r
   statistics:os_state(Node, OsState),
   {noreply, State};
 
+%% stop whole cluster
+handle_cast(stop_cluster, State) when State#state.role == master ->
+  cluster:notify(stop),
+  {noreply, State};
 
 %% REBALANCE cluster state
 handle_cast(rebalance, State) when State#state.role == master ->

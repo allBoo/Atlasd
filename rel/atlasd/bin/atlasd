@@ -76,11 +76,7 @@ else
 fi
 
 # Extract the target cookie
-COOKIE_ARG=`grep '^\-setcookie' $VMARGS_PATH`
-if [ -z "$COOKIE_ARG" ]; then
-    echo "vm.args needs to have a -setcookie parameter."
-    exit 1
-fi
+COOKIE_ARG=
 
 # Make sure CWD is set to the right dir
 cd $USE_DIR
@@ -96,10 +92,10 @@ fi
 if [ -z "$RUNNER_SCRIPT_DATA" ]; then
     ROOTDIR=$RUNNER_BASE_DIR
     ERTS_PATH=$RUNNER_BASE_DIR/erts-$ERTS_VSN/bin
-    if [ -e "$RUNNER_BASE_DIR/releases/$APP_VSN/nodetool" ]; then
-        NODETOOL="$ERTS_PATH/escript $RUNNER_BASE_DIR/releases/$APP_VSN/nodetool $NAME_ARG $COOKIE_ARG"
+    if [ -e "$RUNNER_BASE_DIR/releases/$APP_VSN/atlasctl" ]; then
+        NODETOOL="$RUNNER_BASE_DIR/releases/$APP_VSN/atlasctl"
     else
-        NODETOOL="$ERTS_PATH/escript $ERTS_PATH/nodetool $NAME_ARG $COOKIE_ARG"
+        NODETOOL="$RUNNER_BASE_DIR/bin/atlasctl"
     fi
     SLIM_ARGS=
 elif [ "$RUNNER_SCRIPT_DATA" = "slim" ]; then
@@ -116,7 +112,7 @@ elif [ "$RUNNER_SCRIPT_DATA" = "slim" ]; then
     unset SYSTEM_HOME_BIN
 
     LOCAL_ERTS_PATH=$RUNNER_BASE_DIR/erts-$ERTS_VSN/bin
-    NODETOOL="$ERTS_PATH/escript $RUNNER_BASE_DIR/releases/$APP_VSN/nodetool $NAME_ARG $COOKIE_ARG"
+    NODETOOL="$RUNNER_BASE_DIR/releases/$APP_VSN/atlasctl $NAME_ARG $COOKIE_ARG"
     unset LOCAL_ERL_PATH
 
     # Setup additional arguments for slim release

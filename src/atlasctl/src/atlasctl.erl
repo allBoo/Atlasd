@@ -13,6 +13,7 @@
 
 -define(OPTS_SPEC, [
   {help, $h, "help", undefined, "Show the program options"},
+  {verbose, $v, "verbose", string, "Show debug information"},
   {list, $l, "list", undefined, "List available commands"},
   {config, $c, "config", string, "Path to config file for atlasd"},
   {cluster, $C, "cluster", string, "Atlasd cluster name"},
@@ -27,13 +28,22 @@
 -export([
   connect/1,
   help/2,
+  verbose/2,
   nodes/2,
   connect/2,
   forget/2,
   workers/2,
   monitors/2,
   get_runtime/2,
-  worker_log/2
+  worker_log/2,
+
+  %% nodetool commands
+  getpid/2,
+  ping/2,
+  stop/2,
+  stop_cluster/2,
+  restart/2,
+  reboot/2
 ]).
 
 
@@ -74,7 +84,8 @@ execute_command(_, _) -> ok.
 %%% Config and cluster routine
 %%%===================================================================
 
-locate_config(undefined) -> locate_config_paths(["/etc/atlasd.yml", "etc/atlasd.yml", "/apps/atlasd/etc/atlasd.yml"]);
+locate_config(undefined) -> locate_config_paths(["/etc/atlasd/atlasd.yml", "etc/atlasd.yml",
+  "../etc/atlasd.yml", "/apps/atlasd/etc/atlasd.yml"]);
 locate_config(Path) -> locate_config_paths([Path]).
 locate_config_paths(Paths) ->
   Exists = lists:filtermap(fun(Path) ->
@@ -170,6 +181,40 @@ epmd_path() ->
       Epmd
   end.
 
+%%%===================================================================
+%%% NODETOOL COMMANDS
+%%%===================================================================
+
+getpid(Options, _) ->
+  Node = connect(Options),
+  io:format("~p\n",
+    [list_to_integer(rpc:call(Node, os, getpid, []))]),
+  ok.
+
+ping(Options, _) ->
+  connect(Options),
+  io:format("pong\n"),
+  ok.
+
+stop(Options, _) ->
+  Node = connect(Options),
+  io:format("~p\n", [util:rpc_call(Node, stop, [])]),
+  ok.
+
+stop_cluster(Options, _) ->
+  Node = connect(Options),
+  io:format("~p\n", [util:rpc_call(Node, stop_cluster, [])]),
+  ok.
+
+restart(Options, _) ->
+  Node = connect(Options),
+  io:format("~p\n", [rpc:call(Node, init, restart, [], 60000)]),
+  ok.
+
+reboot(Options, _) ->
+  Node = connect(Options),
+  io:format("~p\n", [rpc:call(Node, init, reboot, [], 60000)]),
+  ok.
 
 %%%===================================================================
 %%% COMMANDS
@@ -179,6 +224,10 @@ help() -> help([], []).
 help(_, _) ->
   io:format("Atlasd cli interface~n"),
   getopt:usage(?OPTS_SPEC, "atlasctl"),
+  ok.
+
+verbose(_, _) ->
+  util:show_debug(),
   ok.
 
 list() -> list([], []).

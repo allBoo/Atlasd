@@ -35,7 +35,9 @@
   connect/1,
   forget/1,
   set_workers/1,
-  set_monitors/1
+  set_monitors/1,
+  stop/0,
+  stop_cluster/0
 ]).
 
 %% gen_server callbacks
@@ -144,6 +146,13 @@ set_workers(Workers) ->
 %% set new monitors specification
 set_monitors(Monitors) ->
   gen_server:call(?SERVER, {set_monitors, Monitors}).
+
+%% stop current node
+stop() ->
+  gen_server:cast(?SERVER, stop).
+
+stop_cluster() ->
+  gen_server:cast(?SERVER, stop_cluster).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -387,6 +396,12 @@ handle_cast(stop, State) ->
   ?LOG("Recieve request to stop node. Trying to stop node", []),
   %application:stop(atlasd),
   init:stop(),
+  {noreply, State};
+
+%% stoping whole cluster
+handle_cast(stop_cluster, State) when is_pid(State#state.master) ->
+  ?LOG("Recieve request to stop cluster", []),
+  gen_server:cast(State#state.master, stop_cluster),
   {noreply, State};
 
 
