@@ -1,4 +1,4 @@
-%% app generated at {2016,1,27} {21,19,25}
+%% app generated at {2016,1,27} {21,50,40}
 {application,otp_mibs,
              [{description,"SNMP managment information base for Erlang/OTP nodes."},
               {vsn,"1.1"},

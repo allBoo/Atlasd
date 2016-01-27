@@ -1,4 +1,4 @@
-%% app generated at {2016,1,27} {21,19,25}
+%% app generated at {2016,1,27} {21,50,39}
 {application,nested,
              [{description,"set and get values from nested maps"},
               {vsn,"0.1.2"},

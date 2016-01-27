@@ -1,4 +1,4 @@
-[{release,"atlasd","0.0.1","7.1",
+[{release,"atlasd","0.0.2","7.1",
           [{kernel,"4.1","/apps/atlasd.upstream/rel/atlasd/lib/kernel-4.1"},
            {stdlib,"2.6","/apps/atlasd.upstream/rel/atlasd/lib/stdlib-2.6"},
            {syntax_tools,"1.7",

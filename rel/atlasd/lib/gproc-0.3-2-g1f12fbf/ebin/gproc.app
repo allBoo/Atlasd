@@ -1,4 +1,4 @@
-%% app generated at {2016,1,27} {21,19,25}
+%% app generated at {2016,1,27} {21,50,39}
 {application,gproc,
              [{description,"GPROC"},
               {vsn,"0.3-2-g1f12fbf"},

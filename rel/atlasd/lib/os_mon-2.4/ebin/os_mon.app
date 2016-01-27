@@ -1,4 +1,4 @@
-%% app generated at {2016,1,27} {21,19,25}
+%% app generated at {2016,1,27} {21,50,40}
 {application,os_mon,
              [{description,"CPO  CXC 138 46"},
               {vsn,"2.4"},

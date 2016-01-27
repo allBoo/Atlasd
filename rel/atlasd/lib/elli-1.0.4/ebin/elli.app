@@ -1,4 +1,4 @@
-%% app generated at {2016,1,27} {21,19,25}
+%% app generated at {2016,1,27} {21,50,39}
 {application,elli,
              [{description,"Fast and robust web server for building high-throughput, low-latency apps"},
               {vsn,"1.0.4"},
