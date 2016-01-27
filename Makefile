@@ -4,6 +4,8 @@ all: compile ctl
 compile:
 	./scripts/share_includes.sh
 	./scripts/rebar co
+	cp etc/app.config rel/files/sys.config
+	cp etc/atlasd.yml rel/files/
 
 ctl:
 	cd src/atlasctl/ && ../../scripts/rebar escriptize

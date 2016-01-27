@@ -233,7 +233,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 locate_config() ->
-  DefaultPaths = ["/etc/atlasd.yml", "etc/atlasd.yml", "/apps/atlasd/etc/atlasd.yml"],
+  DefaultPaths = ["/etc/atlasd/atlasd.yml", "etc/atlasd.yml", "../etc/atlasd.yml", "/apps/atlasd/etc/atlasd.yml"],
   Paths = case application:get_env(atlasd, config) of
             {ok, P} -> [P | DefaultPaths];
             _ -> DefaultPaths

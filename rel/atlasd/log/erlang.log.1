@@ -1,71 +1,88 @@
 
 =====
-===== LOGGING STARTED Thu Apr 23 23:13:10 SAMT 2015
+===== LOGGING STARTED Wed Jan 27 20:09:42 SAMT 2016
 =====
-Exec: /home/alboo/apps/atlasd/rel/atlasd/erts-6.3/bin/erlexec  -boot /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/atlasd -mode embedded -config /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/sys.config -args_file /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/vm.args -- console ''
-Root: /home/alboo/apps/atlasd/rel/atlasd
-{"init terminating in do_boot",{'cannot load',elf_format,get_files}}
-
-Crash dump was written to: erl_crash.dump
-init terminating in do_boot ()
+Exec: /apps/atlasd/rel/atlasd/erts-7.1/bin/erlexec  -boot /apps/atlasd/rel/atlasd/releases/0.0.1/atlasd -mode embedded -config /apps/atlasd/rel/atlasd/releases/0.0.1/sys.config -args_file /apps/atlasd/rel/atlasd/releases/0.0.1/vm.args -- console ''
+Root: /apps/atlasd/rel/atlasd
+Erlang/OTP 18 [erts-7.1] [source-2882b0c] [64-bit] [smp:4:4] [async-threads:10] [hipe] [kernel-poll:false]
 
-=====
-===== LOGGING STARTED Thu Apr 23 23:15:21 SAMT 2015
-=====
-Exec: /home/alboo/apps/atlasd/rel/atlasd/erts-6.3/bin/erlexec  -boot /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/atlasd -mode embedded -config /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/sys.config -args_file /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/vm.args -- console ''
-Root: /home/alboo/apps/atlasd/rel/atlasd
-{"init terminating in do_boot",{'cannot load',elf_format,get_files}}
-
-Crash dump was written to: erl_crash.dump
-init terminating in do_boot ()
-
-=====
-===== LOGGING STARTED Thu Apr 23 23:27:35 SAMT 2015
-=====
-Exec: /home/alboo/apps/atlasd/rel/atlasd/erts-6.3/bin/erlexec  -boot /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/atlasd -mode embedded -config /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/sys.config -args_file /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/vm.args -- console ''
-Root: /home/alboo/apps/atlasd/rel/atlasd
-{"init terminating in do_boot",{'cannot load',elf_format,get_files}}
-
-Crash dump was written to: erl_crash.dump
-init terminating in do_boot ()
-
-=====
-===== LOGGING STARTED Thu Apr 23 23:28:52 SAMT 2015
-=====
-Exec: /home/alboo/apps/atlasd/rel/atlasd/erts-6.3/bin/erlexec  -boot /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/atlasd -mode embedded -config /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/sys.config -args_file /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/vm.args -- console ''
-Root: /home/alboo/apps/atlasd/rel/atlasd
-{"init terminating in do_boot",{'cannot load',elf_format,get_files}}
-
-Crash dump was written to: erl_crash.dump
-init terminating in do_boot ()
-
-=====
-===== LOGGING STARTED Thu Apr 23 23:31:27 SAMT 2015
-=====
-Exec: /home/alboo/apps/atlasd/rel/atlasd/erts-6.3/bin/erlexec  -boot /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/atlasd -mode embedded -config /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/sys.config -args_file /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/vm.args -- console ''
-Root: /home/alboo/apps/atlasd/rel/atlasd
-Erlang/OTP 17 [erts-6.3] [source] [64-bit] [smp:8:8] [async-threads:10] [kernel-poll:false]
-
-Started config
-Eshell V6.3  (abort with ^G)
-(atlasd@127.0.0.1)1>                      (atlasd@127.0.0.1)1> application:which_applications().
-[{atlasd,"Distributed process supervisor","0.0.1"},
- {yamerl,"YAML parser in pure Erlang","0.3.2"},
- {gproc,"GPROC","0.3-2-g1f12fbf"},
- {sasl,"SASL  CXC 138 11","2.4.1"},
- {stdlib,"ERTS  CXC 138 10","2.3"},
- {kernel,"ERTS  CXC 138 10","3.1"}]
-(atlasd@127.0.0.1)2> 
+20:09:44.091 [debug] Node 'atlasd@192.168.1.11' started
+20:09:44.097 [debug] Wait while mnesia starts all tables
+20:09:44.098 [info] All mnesia tables are loaded
+20:09:44.098 [debug] Trying to connect to all known nodes ['atlasd@192.168.1.11','atlasd1@192.168.1.11']
+20:09:44.101 [debug] No master found. Wait for cluster connection finished
+20:09:44.101 [info] Cluster is connected. Trying to become as a master
+20:09:44.101 [debug] Elected as master 'atlasd@192.168.1.11' [<0.1226.0>]
+20:09:44.103 [info] Node 'atlasd@192.168.1.11' started and ready for a work
+Eshell V7.1  (abort with ^G)
+(atlasd@192.168.1.11)1> 20:09:44.104 [debug] Started cluster monitor
+20:09:44.105 [debug] Start handshake with nodes
+20:09:44.105 [debug] Recieve master pid <0.1226.0>
+20:09:44.105 [debug] Worker nodes are []
+20:09:44.105 [debug] Master nodes are ['atlasd@192.168.1.11']
+20:09:44.105 [debug] Runing workers are []
+20:09:45.105 [debug] REBALANCE CLUSTER
+20:09:45.105 [debug] Count instances of 'task-listen-middle' is lower than 1
+20:09:45.105 [warning] Can not find proper nodes for worker 'task-listen-middle' 
+20:09:45.105 [debug] Count instances of 'task-listen-low' is lower than 1
+20:09:45.105 [warning] Can not find proper nodes for worker 'task-listen-low'
+(atlasd@192.168.1.11)1> 
+(atlasd@192.168.1.11)1> 
+(atlasd@192.168.1.11)1> atlasd:
+change_workers_count/2  code_change/3           connect/1               
+decrease_workers/1      forget/1                get_nodes/0             
+get_runtime/1           get_workers/1           handle_call/3           
+handle_cast/2           handle_info/2           increase_workers/1      
+init/1                  is_master/0             is_worker/0             
+module_info/0           module_info/1           notify_state/2          
+restart_worker/1        restart_workers/0       restart_workers/1       
+restart_workers_hard/0  set_monitors/1          set_workers/1           
+start_link/0            start_worker/1          stop/0                  
+stop_cluster/0          stop_worker/1           terminate/2             
+worker_started/1        worker_stoped/1         
+(atlasd@192.168.1.11)1> atlasd:get_nodes()[C[C.
+{ok,#{'atlasd@192.168.1.11' => #{is_master => true,
+        is_worker => false,
+        master_node => true,
+        name => 'atlasd@192.168.1.11',
+        stats => #{cpu => #{load_average => 0.0,per_cpu => []},
+          mem => #{allocated_memory => 0,free_memory => 0},
+          overloaded => false}}}}
+(atlasd@192.168.1.11)2> 
+(atlasd@192.168.1.11)2> 
 BREAK: (a)bort (c)ontinue (p)roc info (i)nfo (l)oaded
        (v)ersion (k)ill (D)b-tables (d)istribution
+[os_mon] memory supervisor port (memsup): Erlang has closed
+[os_mon] cpu supervisor port (cpu_sup): Erlang has closed
 
 =====
-===== LOGGING STARTED Sun Apr 26 16:20:38 SAMT 2015
+===== LOGGING STARTED Wed Jan 27 20:10:32 SAMT 2016
 =====
-Exec: /home/alboo/apps/atlasd/rel/atlasd/erts-6.3/bin/erlexec  -boot /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/atlasd -mode embedded -config /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/sys.config -args_file /home/alboo/apps/atlasd/rel/atlasd/releases/0.1/vm.args -- console ''
-Root: /home/alboo/apps/atlasd/rel/atlasd
-Erlang/OTP 17 [erts-6.3] [source] [64-bit] [smp:8:8] [async-threads:10] [kernel-poll:false]
+Exec: /apps/atlasd/rel/atlasd/erts-7.1/bin/erlexec  -boot /apps/atlasd/rel/atlasd/releases/0.0.1/atlasd -mode embedded -config /apps/atlasd/rel/atlasd/releases/0.0.1/sys.config -args_file /apps/atlasd/rel/atlasd/releases/0.0.1/vm.args -- console ''
+Root: /apps/atlasd/rel/atlasd
+Erlang/OTP 18 [erts-7.1] [source-2882b0c] [64-bit] [smp:4:4] [async-threads:10] [hipe] [kernel-poll:false]
 
-Started config
-Eshell V6.3  (abort with ^G)
-(atlasd@192.168.2.5)1> 
+20:10:34.095 [debug] Node 'atlasd@192.168.1.11' started
+20:10:34.101 [debug] Wait while mnesia starts all tables
+20:10:34.102 [info] All mnesia tables are loaded
+20:10:34.102 [debug] Trying to connect to all known nodes ['atlasd@192.168.1.11','atlasd1@192.168.1.11']
+20:10:34.104 [debug] No master found. Wait for cluster connection finished
+20:10:34.104 [info] Cluster is connected. Trying to become as a master
+20:10:34.106 [debug] Elected as master 'atlasd@192.168.1.11' [<0.1226.0>]
+20:10:34.106 [info] Node 'atlasd@192.168.1.11' started and ready for a work
+Eshell V7.1  (abort with ^G)
+(atlasd@192.168.1.11)1> 20:10:34.110 [debug] Started cluster monitor
+20:10:34.110 [debug] Start handshake with nodes
+20:10:34.110 [debug] Recieve master pid <0.1226.0>
+20:10:34.110 [debug] Worker nodes are []
+20:10:34.110 [debug] Master nodes are ['atlasd@192.168.1.11']
+20:10:34.110 [debug] Runing workers are []
+20:10:35.111 [debug] REBALANCE CLUSTER
+20:10:35.111 [debug] Count instances of 'task-listen-middle' is lower than 1
+20:10:35.111 [warning] Can not find proper nodes for worker 'task-listen-middle' 
+20:10:35.111 [debug] Count instances of 'task-listen-low' is lower than 1
+20:10:35.111 [warning] Can not find proper nodes for worker 'task-listen-low'
+(atlasd@192.168.1.11)1> 
+(atlasd@192.168.1.11)1> 20:11:47.112 [info] Recieve request to stop node. Trying to stop node
+[os_mon] memory supervisor port (memsup): Erlang has closed
+[os_mon] cpu supervisor port (cpu_sup): Erlang has closed

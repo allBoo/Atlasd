@@ -15,19 +15,21 @@
   err_msg/2,
   dbg/1,
   dbg/2,
+  show_debug/0,
   rpc_call/3,
   rpc_call/4
 ]).
 
 
+show_debug() -> ok.
 
 err_msg(Msg) -> err_msg(Msg, []).
 err_msg(Msg, Opts) ->
   io:format("ERROR: " ++ Msg ++ "~n", Opts).
 
 dbg(Msg) -> dbg(Msg, []).
-dbg(Msg, Opts) ->
-  io:format("DEBUG: " ++ Msg ++ "~n", Opts).
+dbg(_Msg, _Opts) -> ok.
+  %io:format("DEBUG: " ++ Msg ++ "~n", Opts).
 
 rpc_call(Node, Module, Action, Args) ->
   case rpc:call(Node, Module, Action, Args) of

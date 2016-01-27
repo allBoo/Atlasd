@@ -1,0 +1,62 @@
+
+################################### Cluster ###################################
+
+cluster:
+  name: atlasd
+  cookie: "SecretCookie"
+
+#################################### Node #####################################
+
+node:
+  master: true
+  worker: false
+  priority: 100
+
+#################################### Paths ####################################
+
+path:
+# Path to directory containing configuration (this file and logging.yml):
+  conf: /apps/atlasd/etc/
+
+# Path to data files
+  data: /tmp/atlasd
+
+# Path to temporary files:
+  work: /tmp
+
+# Path to log files:
+  logs: log/
+
+############################## Network And HTTP ###############################
+
+# internal communication port
+inet:
+  host: 192.168.1.11
+  port: 9100
+
+http:
+# Disable HTTP completely:
+  enabled: true
+
+# Set both 'bind_host' and 'publish_host':
+  host: 0.0.0.0
+
+# Set a custom port to listen for HTTP traffic:
+  port: 9900
+
+############################## Monitors ###############################
+
+os:
+  mem_watermark: 80
+
+############################## Logging ###############################
+
+log:
+# name of work log file
+  file: "atlasd.log"
+  error: "error.log"
+  crash: "crash.log"
+# log level
+  level: debug
+# show info about starting processes in error log for extra debugging
+  procs: false
