@@ -227,16 +227,7 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 
 process_queue(Queue, State) when Queue /= false ->
-  ConsumersCount = case master:get_workers(node()) of
-    {_, WorkersList} ->
-      length(lists:filter(
-        fun({_Pid, Name}) ->
-          Name == list_to_atom(State#state.task)
-        end, WorkersList));
-     _ ->
-       0
-  end,
-
+  ConsumersCount = length(master:get_worker_instances(State#state.task)),
   Estimated_time =
     if
       Queue#queue.ack_rate == 0.0 -> -1;
