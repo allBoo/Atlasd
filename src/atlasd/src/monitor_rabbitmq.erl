@@ -227,7 +227,16 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 
 process_queue(Queue, State) when Queue /= false ->
-  %?DBG("Processing queue: ~p~n", [Queue#queue.name]),
+  ConsumersCount = case master:get_workers(node()) of
+    {_, WorkersList} ->
+      length(lists:filter(
+        fun({_Pid, Name}) ->
+          Name == list_to_atom(State#state.task)
+        end, WorkersList));
+     _ ->
+       0
+  end,
+
   Estimated_time =
     if
       Queue#queue.ack_rate == 0.0 -> -1;
@@ -235,14 +244,14 @@ process_queue(Queue, State) when Queue /= false ->
     end,
 
   if
-    Queue#queue.messages =:= 0, Queue#queue.consumers =/= 0, Queue#queue.publish_rate =:= 0.0 ->
+    Queue#queue.messages =:= 0, ConsumersCount =/= 0, Queue#queue.publish_rate =:= 0.0 ->
 %%      ?DBG("~w messages, ~w consumers, consumers must be killed ~n", [
 %%        Queue#queue.messages,
 %%        Queue#queue.consumers
 %%      ]),
       atlasd:change_workers_count(State#state.task, 0);
 
-    Queue#queue.messages =:= 0, Queue#queue.consumers > 1, Queue#queue.publish_rate =/= 0.0 ->
+    Queue#queue.messages =:= 0, ConsumersCount > 1, Queue#queue.publish_rate =/= 0.0 ->
 %%      ?DBG("~w messages, ~w consumers, publish rate ~w, consumers must be decreased ~n", [
 %%        Queue#queue.messages,
 %%        Queue#queue.consumers,
@@ -253,7 +262,7 @@ process_queue(Queue, State) when Queue /= false ->
   end,
 
   if
-    Queue#queue.messages =/= 0, Queue#queue.consumers =:= 0 ->
+    Queue#queue.messages =/= 0, ConsumersCount =:= 0 ->
 %%    ?DBG("~p consumers, ~p messages, consumers must be added ~n", [
 %%      Queue#queue.consumers,
 %%      Queue#queue.messages
