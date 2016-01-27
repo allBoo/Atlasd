@@ -34,7 +34,8 @@
   get_nodes/0,
   connect/1,
   forget/1,
-  set_workers/1
+  set_workers/1,
+  set_monitors/1
 ]).
 
 %% gen_server callbacks
@@ -140,6 +141,10 @@ forget(Node) ->
 set_workers(Workers) ->
   gen_server:call(?SERVER, {set_workers, Workers}).
 
+%% set new monitors specification
+set_monitors(Monitors) ->
+  gen_server:call(?SERVER, {set_monitors, Monitors}).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% notify master server about cluster state (workers stat, os stat and other)
@@ -243,6 +248,11 @@ handle_call({forget, _Node}, _From, State) ->
 handle_call({set_workers, Workers}, _From, State) when is_pid(State#state.master) ->
   {reply, gen_server:cast(State#state.master, {set_workers, Workers}), State};
 handle_call({set_workers, _Workers}, _From, State) ->
+  {reply, {error, "master node is not started"}, State};
+
+handle_call({set_monitors, Monitors}, _From, State) when is_pid(State#state.master) ->
+  {reply, gen_server:cast(State#state.master, {set_monitors, Monitors}), State};
+handle_call({set_monitors, _Monitors}, _From, State) ->
   {reply, {error, "master node is not started"}, State};
 
 

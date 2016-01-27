@@ -251,6 +251,15 @@ handle_cast({set_workers, Workers}, State) when State#state.role == master ->
   [runtime_config:set_worker(W) || W <- Workers],
   {noreply, do_rebalance(State#state{worker_config = runtime_config:workers()})};
 
+%% set new monitors config
+handle_cast({set_monitors, Monitors}, State) when State#state.role == master ->
+  ?LOG("Trying to setup new monitors config ~p", [Monitors]),
+  %% TODO make group operations
+  [runtime_config:delete(M) || M <- runtime_config:monitors()],
+  [runtime_config:set_monitor(M) || M <- Monitors],
+  master_sup:start_global_child(master_monitors_sup),
+  {noreply, State};
+
 
 %% restart workers on all nodes
 handle_cast(restart_workers, State) when State#state.role == master ->
@@ -265,6 +274,7 @@ handle_cast({restart_workers, Workers}, State) when State#state.role == master -
 handle_cast(restart_workers_hard, State) when State#state.role == master ->
   do_restart_workers_hard(State#state.workers),
   {noreply, State};
+
 
 %% Recieve notifications
 handle_cast({notify_state, Node, {worker_state, WorkerState}}, State) when State#state.role == master, is_record(WorkerState, worker_state) ->
