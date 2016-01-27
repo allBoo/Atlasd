@@ -108,6 +108,6 @@ filter_overload_nodes({Worker, _Instances, Nodes}) ->
     CpuInfo = NodeStat#os_state.cpu_info,
 
     NodeStat#os_state.overloaded =:= false andalso
-      MemInfo#memory_info.free_memory + WorkerStat#avg_worker.avg_mem =< MemInfo#memory_info.allocated_memory andalso
+      WorkerStat#avg_worker.avg_mem =< MemInfo#memory_info.free_memory andalso
         CpuInfo#cpu_info.load_average =< length(CpuInfo#cpu_info.per_cpu) * 2
   end, Nodes).
