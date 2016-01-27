@@ -18,26 +18,26 @@
 up() ->
   mnesia:create_table(monitor, [{disc_copies, [node()]}, {attributes, record_info(fields, monitor)}]),
   insert([
-    #monitor{
-      name = monitor_rabbitmq,
-      config = #rabbitmq_monitor{
-        host = "***REMOVED***",
-        tasks = [
-          #rabbitmq_monitor_task{
-            task = "task-listen-middle",
-            queue = "ds.conveyor.converter.gc"
-          },
-          #rabbitmq_monitor_task{
-            task = "task-listen-low",
-            queue = "ds.conveyor.all.low"
-          },
-          #rabbitmq_monitor_task{
-            task = "task-listen-high",
-            queue = "ds.conveyor.all.high"
-          }
-        ]
-      }
-    }
+%%    #monitor{
+%%      name = monitor_rabbitmq,
+%%      config = #rabbitmq_monitor{
+%%        host = "***REMOVED***",
+%%        tasks = [
+%%          #rabbitmq_monitor_task{
+%%            task = "task-listen-middle",
+%%            queue = "ds.conveyor.converter.gc"
+%%          },
+%%          #rabbitmq_monitor_task{
+%%            task = "task-listen-low",
+%%            queue = "ds.conveyor.all.low"
+%%          },
+%%          #rabbitmq_monitor_task{
+%%            task = "task-listen-high",
+%%            queue = "ds.conveyor.all.high"
+%%          }
+%%        ]
+%%      }
+%%    }
   ]).
 
 insert([]) -> ok;

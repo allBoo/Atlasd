@@ -52,12 +52,12 @@ start_link(Worker) when is_record(Worker, worker) ->
           {ok, SupPid};
 
         WorkerError ->
-          ?DBG("Can not start worker due to ~p", [WorkerError]),
+          ?ERR("Can not start worker due to ~p", [WorkerError]),
           WorkerError
       end;
 
     Err ->
-      ?DBG("Can not start worker supervisor due to ~p", [Err]),
+      ?ERR("Can not start worker supervisor due to ~p", [Err]),
       Err
   end.
 

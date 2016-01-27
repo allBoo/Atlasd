@@ -12,7 +12,6 @@
 
 %% API
 -export([
-  main/0,
   get_all_queues/1,
   request/3,
   auth_header/2,
@@ -41,19 +40,6 @@
   task
 }).
 
-main() ->
-  inets:start(),
-  State = #state{
-    host = "***REMOVED***",
-    port = "15672",
-    user = "guest",
-    pass = "guest",
-    vhost = "%2f",
-    queue = "ds.conveyor.router.ac",
-    minutes_to_add_consumers = 1000
-  },
-  %get_queue_by_name(State).
-  ?DBG("~p ", get_all_queues(State)).
 
 get_queue_by_name(State) ->
   Data = get_data("/queues/" ++ State#state.vhost ++ "/" ++ State#state.queue, get, State),

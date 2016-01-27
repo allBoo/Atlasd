@@ -247,7 +247,7 @@ start_database() ->
   ok = mnesia:start([{dir, DataPath}]),
   ?DBG("Wait while mnesia starts all tables"),
   ok = mnesia:wait_for_tables(mnesia:system_info(local_tables), infinity),
-  ?DBG("All tables are loaded"),
+  ?LOG("All mnesia tables are loaded"),
   ok.
 
 
@@ -262,7 +262,7 @@ do_add_nodes([Node | Tail]) ->
   do_add_nodes(Tail).
 
 try_to_add_node(Node) ->
-  ?DBG("Reset DB schema on node ~p and create new one", [Node]),
+  ?WARN("Reset DB schema on node ~p and create new one", [Node]),
   gen_server:call({?MODULE, Node}, reset_database),
 
   case mnesia:change_config(extra_db_nodes, [Node]) of
@@ -270,7 +270,7 @@ try_to_add_node(Node) ->
       %% make database persistent
       mnesia:change_table_copy_type(schema, Node, disc_copies),
 
-      ?DBG("New node ~p connected successfully. Start to copy tables", [Node]),
+      ?LOG("New node ~p connected successfully. Start to copy tables", [Node]),
       copy_tables(Node);
 
     Error ->
@@ -293,23 +293,23 @@ copy_tables(ToNode, [Table | Tables]) ->
       %% if table already exists check copy type and change it if need
       case lists:keyfind(ToNode, 1, Nodes) of
         {ToNode, Type} ->
-          ?DBG("Table ~p on node ~p already has the same copy type ~p", [Table, ToNode, Type]);
+          ?LOG("Table ~p on node ~p already has the same copy type ~p", [Table, ToNode, Type]);
         {ToNode, AnotherType} ->
           Result = mnesia:change_table_copy_type(Table, ToNode, Type),
-          ?DBG("Table ~p on node ~p has another copy type ~p. Change it to ~p with result ~p", [Table, ToNode, AnotherType, Type, Result]);
+          ?LOG("Table ~p on node ~p has another copy type ~p. Change it to ~p with result ~p", [Table, ToNode, AnotherType, Type, Result]);
         _ ->
           Result = mnesia:add_table_copy(Table, ToNode, Type),
-          ?DBG("Add table ~p copy as ~p to node ~p with result ~p", [Table, Type, ToNode, Result])
+          ?LOG("Add table ~p copy as ~p to node ~p with result ~p", [Table, Type, ToNode, Result])
       end;
 
     _ ->
-      ?DBG("Table ~p doesn`t exists on master node ~p", [Table, node()]),
+      ?WARN("Table ~p doesn`t exists on master node ~p", [Table, node()]),
       ignore
   end,
   copy_tables(ToNode, Tables).
 
 
 do_remove_node(Node) ->
-  ?DBG("Remove table copies from node ~p", [Node]),
+  ?LOG("Remove table copies from node ~p", [Node]),
   mnesia:del_table_copy(schema, Node),
   mnesia:system_info(running_db_nodes).

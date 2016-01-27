@@ -23,6 +23,9 @@
   start_worker/1,
   stop_worker/1,
   restart_worker/1,
+  restart_workers/0,
+  restart_workers/1,
+  restart_workers_hard/0,
   increase_workers/1,
   decrease_workers/1,
   change_workers_count/2,
@@ -80,6 +83,16 @@ stop_worker(WorkerPid) when is_pid(WorkerPid) ->
 %% restart worker
 restart_worker(WorkerPid) when is_pid(WorkerPid) ->
   gen_server:cast(?SERVER, {restart_worker, WorkerPid}).
+
+%% restart workers by name
+restart_workers() ->
+  gen_server:cast(?SERVER, restart_workers).
+
+restart_workers(Workers) ->
+  gen_server:cast(?SERVER, {restart_workers, Workers}).
+
+restart_workers_hard() ->
+  gen_server:cast(?SERVER, restart_workers_hard).
 
 %% tell to master to change workers count
 increase_workers(Worker) when is_record(Worker, worker); is_atom(Worker); is_list(Worker) ->
@@ -257,29 +270,50 @@ handle_cast({master, Pid}, State) ->
 
 %% start worker
 handle_cast({start_worker, Worker}, State) ->
-  ?DBG("Try to start worker ~p", [Worker]),
+  ?LOG("Try to start worker ~p", [Worker]),
   do_start_worker(Worker),
   {noreply, State};
 
 %% stop worker
 handle_cast({stop_worker, WorkerPid}, State) when is_pid(WorkerPid) ->
-  ?DBG("Try to gracefully stop worker ~p", [WorkerPid]),
+  ?LOG("Try to gracefully stop worker ~p", [WorkerPid]),
   do_stop_worker(WorkerPid),
   {noreply, State};
 
 
 %% restart worker
 handle_cast({restart_worker, WorkerPid}, State) when is_pid(WorkerPid) ->
-  ?DBG("Try to gracefully restart worker ~p", [WorkerPid]),
+  ?LOG("Try to gracefully restart worker ~p", [WorkerPid]),
   do_restart_worker(WorkerPid),
   {noreply, State};
 
+handle_cast({restart_worker_hard, WorkerPid}, State) when is_pid(WorkerPid) ->
+  ?LOG("Try to hard restart worker ~p", [WorkerPid]),
+  do_restart_worker_hard(WorkerPid),
+  {noreply, State};
+
+
+handle_cast(restart_workers, State) when is_pid(State#state.master) ->
+  ?LOG("Try to gracefully restart all workers", []),
+  gen_server:cast(State#state.master, restart_workers),
+  {noreply, State};
+
+handle_cast({restart_workers, Workers}, State) when is_pid(State#state.master) ->
+  WorkersList = lists:map(fun(El) -> if is_list(El) -> list_to_atom(El); true -> El end end, Workers),
+  ?LOG("Try to gracefully restart workers ~p", [WorkersList]),
+  gen_server:cast(State#state.master, {restart_workers, WorkersList}),
+  {noreply, State};
+
+handle_cast(restart_workers_hard, State) when is_pid(State#state.master) ->
+  ?LOG("Try to gracefully restart all workers in hard mode", []),
+  gen_server:cast(State#state.master, restart_workers_hard),
+  {noreply, State};
 
 %% increase workers count on one
 handle_cast({increase_workers, Worker}, State) ->
   case resolve_worker(Worker) of
     WorkerCnf when is_record(WorkerCnf, worker) ->
-      ?DBG("Try to increase workers ~p count on 1", [Worker]),
+      ?LOG("Try to increase workers ~p count on 1", [Worker]),
       gen_server:cast(State#state.master, {increase_workers, WorkerCnf#worker.name});
     _ ->
       neok
@@ -291,7 +325,7 @@ handle_cast({increase_workers, Worker}, State) ->
 handle_cast({decrease_workers, Worker}, State) ->
   case resolve_worker(Worker) of
     WorkerCnf when is_record(WorkerCnf, worker) ->
-      ?DBG("Try to decrease workers ~p count on 1", [Worker]),
+      ?LOG("Try to decrease workers ~p count on 1", [Worker]),
       gen_server:cast(State#state.master, {decrease_workers, WorkerCnf#worker.name});
     _ ->
       neok
@@ -303,7 +337,7 @@ handle_cast({decrease_workers, Worker}, State) ->
 handle_cast({change_workers_count, {Worker, Count}}, State) ->
   case resolve_worker(Worker) of
     WorkerCnf when is_record(WorkerCnf, worker) ->
-      ?DBG("Try to change workers ~p count to ~p", [Worker, Count]),
+      ?LOG("Try to change workers ~p count to ~p", [Worker, Count]),
       gen_server:cast(State#state.master, {change_workers_count, {WorkerCnf#worker.name, Count}});
     _ ->
       neok
@@ -430,9 +464,15 @@ do_restart_worker(WorkerPid) when is_pid(WorkerPid) ->
 do_restart_worker(_) ->
   false.
 
+do_restart_worker_hard(WorkerPid) when is_pid(WorkerPid) ->
+  Worker = worker:get_config(WorkerPid),
+  do_restart_worker_hard(WorkerPid, Worker);
+do_restart_worker_hard(_) ->
+  false.
+
 do_restart_worker(WorkerPid, Worker) when is_pid(WorkerPid),
                                           Worker#worker.restart == disallow ->
-  ?DBG("Restart of worker ~p is not allowed", [Worker#worker.name]),
+  ?WARN("Restart of worker ~p is not allowed", [Worker#worker.name]),
   {error, disallow};
 
 do_restart_worker(WorkerPid, Worker) when is_pid(WorkerPid),
@@ -447,5 +487,9 @@ do_restart_worker(WorkerPid, Worker) when is_pid(WorkerPid),
   end;
 
 do_restart_worker(WorkerPid, Worker) when is_pid(WorkerPid) ->
+  do_stop_worker(WorkerPid),
+  do_start_worker(Worker).
+
+do_restart_worker_hard(WorkerPid, Worker) when is_pid(WorkerPid) ->
   do_stop_worker(WorkerPid),
   do_start_worker(Worker).

@@ -282,6 +282,6 @@ process_queue(Queue, State) when Queue /= false ->
   ok;
 
 process_queue(Queue, State) when Queue == false ->
-  ?DBG("Queue proccess failed ~p", [State]),
+  ?WARN("Queue proccess failed ~p", [State]),
   failed.
 
