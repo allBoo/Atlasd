@@ -86,3 +86,65 @@ Eshell V7.1  (abort with ^G)
 (atlasd@192.168.1.11)1> 20:11:47.112 [info] Recieve request to stop node. Trying to stop node
 [os_mon] memory supervisor port (memsup): Erlang has closed
 [os_mon] cpu supervisor port (cpu_sup): Erlang has closed
+
+=====
+===== LOGGING STARTED Wed Jan 27 20:35:13 SAMT 2016
+=====
+Exec: /apps/atlasd.upstream/rel/atlasd/erts-7.1/bin/erlexec  -boot /apps/atlasd.upstream/rel/atlasd/releases/0.0.1/atlasd -mode embedded -config /apps/atlasd.upstream/rel/atlasd/releases/0.0.1/sys.config -args_file /apps/atlasd.upstream/rel/atlasd/releases/0.0.1/vm.args -- console ''
+Root: /apps/atlasd.upstream/rel/atlasd
+Erlang/OTP 18 [erts-7.1] [source-2882b0c] [64-bit] [smp:4:4] [async-threads:10] [hipe] [kernel-poll:false]
+
+20:35:15.655 [debug] Node 'atlasd@192.168.1.11' started
+20:35:15.662 [debug] Wait while mnesia starts all tables
+20:35:15.664 [info] All mnesia tables are loaded
+20:35:15.664 [debug] Trying to connect to all known nodes ['atlasd@192.168.1.11','atlasd1@192.168.1.11']
+20:35:15.666 [debug] No master found. Wait for cluster connection finished
+20:35:15.666 [info] Cluster is connected. Trying to become as a master
+20:35:15.666 [debug] Elected as master 'atlasd@192.168.1.11' [<0.1226.0>]
+20:35:15.668 [info] Node 'atlasd@192.168.1.11' started and ready for a work
+20:35:15.670 [debug] Started cluster monitor
+20:35:15.671 [debug] Start handshake with nodes
+20:35:15.671 [debug] Recieve master pid <0.1226.0>
+20:35:15.671 [debug] Worker nodes are []
+Eshell V7.1  (abort with ^G)
+20:35:15.671 [debug] Master nodes are ['atlasd@192.168.1.11']
+(atlasd@192.168.1.11)1> 20:35:15.671 [debug] Runing workers are []
+20:35:16.671 [debug] REBALANCE CLUSTER
+20:35:16.672 [debug] Count instances of 'task-listen-middle' is lower than 1
+20:35:16.672 [warning] Can not find proper nodes for worker 'task-listen-middle' 
+20:35:16.672 [debug] Count instances of 'task-listen-low' is lower than 1
+20:35:16.672 [warning] Can not find proper nodes for worker 'task-listen-low'
+20:35:34.671 [info] Recieve request to stop node. Trying to stop node
+[os_mon] memory supervisor port (memsup): Erlang has closed
+[os_mon] cpu supervisor port (cpu_sup): Erlang has closed
+
+=====
+===== LOGGING STARTED Wed Jan 27 21:08:03 SAMT 2016
+=====
+Exec: /apps/atlasd.upstream/rel/atlasd/erts-7.1/bin/erlexec  -boot /apps/atlasd.upstream/rel/atlasd/releases/0.0.1/atlasd -mode embedded -config /apps/atlasd.upstream/rel/atlasd/releases/0.0.1/sys.config -args_file /apps/atlasd.upstream/rel/atlasd/releases/0.0.1/vm.args -- console ''
+Root: /apps/atlasd.upstream/rel/atlasd
+Erlang/OTP 18 [erts-7.1] [source-2882b0c] [64-bit] [smp:4:4] [async-threads:10] [hipe] [kernel-poll:false]
+
+21:08:05.615 [debug] Node 'atlasd@192.168.1.11' started
+21:08:05.624 [debug] Wait while mnesia starts all tables
+21:08:05.626 [info] All mnesia tables are loaded
+21:08:05.626 [debug] Trying to connect to all known nodes ['atlasd@192.168.1.11','atlasd1@192.168.1.11']
+21:08:05.629 [debug] No master found. Wait for cluster connection finished
+21:08:05.629 [info] Cluster is connected. Trying to become as a master
+21:08:05.631 [debug] Elected as master 'atlasd@192.168.1.11' [<0.1226.0>]
+21:08:05.631 [info] Node 'atlasd@192.168.1.11' started and ready for a work
+21:08:05.635 [debug] Started cluster monitor
+21:08:05.636 [debug] Start handshake with nodes
+21:08:05.636 [debug] Recieve master pid <0.1226.0>
+21:08:05.637 [debug] Worker nodes are []
+Eshell V7.1  (abort with ^G)
+21:08:05.637 [debug] Master nodes are ['atlasd@192.168.1.11']
+(atlasd@192.168.1.11)1> 21:08:05.637 [debug] Runing workers are []
+21:08:06.636 [debug] REBALANCE CLUSTER
+21:08:06.636 [debug] Count instances of 'task-listen-middle' is lower than 1
+21:08:06.636 [warning] Can not find proper nodes for worker 'task-listen-middle' 
+21:08:06.637 [debug] Count instances of 'task-listen-low' is lower than 1
+21:08:06.637 [warning] Can not find proper nodes for worker 'task-listen-low'
+21:08:10.235 [info] Recieve request to stop node. Trying to stop node
+[os_mon] memory supervisor port (memsup): Erlang has closed
+[os_mon] cpu supervisor port (cpu_sup): Erlang has closed

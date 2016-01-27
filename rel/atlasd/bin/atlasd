@@ -112,7 +112,7 @@ elif [ "$RUNNER_SCRIPT_DATA" = "slim" ]; then
     unset SYSTEM_HOME_BIN
 
     LOCAL_ERTS_PATH=$RUNNER_BASE_DIR/erts-$ERTS_VSN/bin
-    NODETOOL="$RUNNER_BASE_DIR/releases/$APP_VSN/atlasctl $NAME_ARG $COOKIE_ARG"
+    NODETOOL="$RUNNER_BASE_DIR/releases/$APP_VSN/atlasctl"
     unset LOCAL_ERL_PATH
 
     # Setup additional arguments for slim release

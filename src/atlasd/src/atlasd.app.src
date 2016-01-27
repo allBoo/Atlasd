@@ -15,6 +15,5 @@
                  ]},
   {mod, { atlasd_app, []}},
   {env, [
-    {config, "/apps/atlasd/etc/atlasd.yml"}
   ]}
  ]}.

@@ -1,8 +1,8 @@
-run_erl [14214] Wed Jan 27 20:10:32 2016
+run_erl [20359] Wed Jan 27 21:08:03 2016
 Args before exec of shell:
-run_erl [14214] Wed Jan 27 20:10:32 2016
+run_erl [20359] Wed Jan 27 21:08:03 2016
 argv[0] = sh
-run_erl [14214] Wed Jan 27 20:10:32 2016
+run_erl [20359] Wed Jan 27 21:08:03 2016
 argv[1] = -c
-run_erl [14214] Wed Jan 27 20:10:32 2016
-argv[2] = exec /apps/atlasd/rel/atlasd/bin/atlasd console \'\' 
+run_erl [20359] Wed Jan 27 21:08:03 2016
+argv[2] = exec /apps/atlasd.upstream/rel/atlasd/bin/atlasd console \'\' 

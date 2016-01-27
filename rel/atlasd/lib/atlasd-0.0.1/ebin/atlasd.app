@@ -1,4 +1,4 @@
-%% app generated at {2016,1,27} {19,59,55}
+%% app generated at {2016,1,27} {21,19,25}
 {application,atlasd,
              [{description,"Distributed process supervisor"},
               {vsn,"0.0.1"},
@@ -15,7 +15,7 @@
               {applications,[kernel,stdlib,lager,inets,os_mon,gproc,yamerl,
                              elli]},
               {included_applications,[]},
-              {env,[{config,"/apps/atlasd/etc/atlasd.yml"}]},
+              {env,[]},
               {maxT,infinity},
               {maxP,infinity},
               {mod,{atlasd_app,[]}}]}.

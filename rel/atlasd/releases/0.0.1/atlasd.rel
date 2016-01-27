@@ -1,11 +1,11 @@
-%% rel generated at {2016,1,27} {19,59,54}
+%% rel generated at {2016,1,27} {21,19,23}
 {release,{"atlasd","0.0.1"},
          {erts,"7.1"},
          [{kernel,"4.1"},
           {stdlib,"2.6"},
           {syntax_tools,"1.7"},
           {compiler,"6.0.1"},
-          {goldrush,"0.1.7"},
+          {goldrush,"0.1.8"},
           {lager,"3.0.2"},
           {inets,"6.0.1"},
           {sasl,"2.6"},

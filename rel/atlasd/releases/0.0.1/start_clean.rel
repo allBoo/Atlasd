@@ -1,4 +1,4 @@
-%% rel generated at {2016,1,27} {19,59,54}
+%% rel generated at {2016,1,27} {21,19,23}
 {release,{"start_clean",[]},
          {erts,"7.1"},
          [{kernel,"4.1"},
@@ -9,7 +9,7 @@
           {gproc,"0.3-2-g1f12fbf",load},
           {compiler,"6.0.1",load},
           {syntax_tools,"1.7",load},
-          {goldrush,"0.1.7",load},
+          {goldrush,"0.1.8",load},
           {lager,"3.0.2",load},
           {sasl,"2.6",load},
           {os_mon,"2.4",load},

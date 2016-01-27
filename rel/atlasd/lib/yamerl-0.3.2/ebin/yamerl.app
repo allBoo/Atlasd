@@ -1,4 +1,4 @@
-%% app generated at {2016,1,27} {19,59,56}
+%% app generated at {2016,1,27} {21,19,26}
 {application,yamerl,
              [{description,"YAML parser in pure Erlang"},
               {vsn,"0.3.2"},
