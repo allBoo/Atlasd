@@ -20,7 +20,8 @@
   resolve_master/3,
 
   get_workers/1,
-  whereis_master/0
+  whereis_master/0,
+  get_worker_instances/1
 ]).
 
 %% gen_server callbacks
@@ -77,6 +78,11 @@ get_workers(Node) when is_list(Node) ->
   get_workers(list_to_atom(Node));
 get_workers(Node) ->
   gen_server:call(?SERVER, {get_workers, Node}).
+
+get_worker_instances(Worker) when is_list(Worker) ->
+  get_worker_instances(list_to_atom(Worker));
+get_worker_instances(Worker) when is_atom(Worker) ->
+  gen_server:call(?SERVER, {get_worker_instances, Worker}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -158,6 +164,13 @@ handle_call({get_workers, Node}, _From, State) ->
   Workers = cluster:poll(Node, get_workers),
   {reply, {ok, Workers}, State};
 
+
+handle_call({get_worker_instances, Worker}, _From, State) ->
+  Instances = lists:filter(
+    fun({_, _, Name}) ->
+      Name == Worker
+    end, State#state.workers),
+  {reply, Instances, State};
 
 handle_call({connect, Node}, _From, State) when State#state.role == master ->
   {reply, {ok, cluster:add_node(Node)}, State};
