@@ -20,6 +20,7 @@
 %% Helper macro for declaring children of supervisor
 -define(CHILD(I), {I, {I, start_link, []}, permanent, 5000, worker, [I]}).
 -define(CHILD(I, A), {I, {I, start_link, A}, permanent, 5000, worker, [I]}).
+-define(CHILD(N, I, A), {N, {I, start_link, A}, permanent, 5000, worker, [I]}).
 -define(CHILD_SUP(I), {I, {I, start_link, []}, permanent, infinity, supervisor, [I]}).
 -define(CHILD_SUP_T(I), {I, {I, start_link, []}, transient, infinity, supervisor, [I]}).
 
