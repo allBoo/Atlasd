@@ -8,9 +8,14 @@ start_link() ->
     {auth_fun, fun api:auth_fun/3}
   ],
 
+  FileserveConfig = [{prefix, <<"/assets">>},
+    {path, <<"/apps/atlasd/assets">>},
+    {charset, "utf-8"}],
+
   Config = [
     {mods, [
       {elli_basicauth, BasicauthConfig},
+      {elli_fileserve, FileserveConfig},
       {api_callback, []}
     ]}
   ],
