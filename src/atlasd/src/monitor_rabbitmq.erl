@@ -38,7 +38,7 @@
   user = "guest",
   pass = "guest",
   vhost = "%2f",
-  minutes_to_add_consumers = 1000,
+  minutes_to_add_consumers = 1,
   exchange,
   queue,
   task
@@ -263,11 +263,30 @@ process_queue(Queue, State) when Queue /= false ->
   end,
 
   if
-    Estimated_time > State#state.minutes_to_add_consumers ->
-%%    ?DBG("Estimate time ~p (more than ~p minutes), consumers must be added ~n", [
-%%      Estimated_time, State#state.minutes_to_add_consumers
+    Queue#queue.messages =/= 0, ConsumersCount =/= 0, Queue#queue.messages < ConsumersCount ->
+%%    ?DBG("~p consumers, ~p messages, some consumers must be removed ~n", [
+%%      Queue#queue.consumers,
+%%      Queue#queue.messages
 %%    ]),
-    atlasd:increase_workers(State#state.task);
+      atlasd:change_workers_count(State#state.task, Queue#queue.messages);
+    true -> ok
+  end,
+
+  if
+    Queue#queue.messages =/= 0, ConsumersCount =/= 0, Queue#queue.messages > ConsumersCount ->
+      if
+        Estimated_time > State#state.minutes_to_add_consumers ->
+%%        ?DBG("Estimate time ~p (more than ~p minutes), consumers must be added ~n", [
+%%          Estimated_time, State#state.minutes_to_add_consumers
+%%        ]),
+          atlasd:increase_workers(State#state.task);
+
+        Estimated_time =:= -1, ConsumersCount < 100 ->
+          atlasd:increase_workers(State#state.task);
+
+        true -> ok
+      end;
+
     true -> ok
   end,
 

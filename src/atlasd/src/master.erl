@@ -115,11 +115,11 @@ init([]) ->
   NodePriority = config:get('node.priority', 0, integer),
   case whereis_master() of
     undefined ->
-      ?DBG("No master found. Wait for cluster connection finished", []),
+      ?LOG("No master found. Wait for cluster connection finished", []),
       {ok, #state{role = undefined, master = undefined, master_node = undefined, priority = NodePriority}};
 
     {Master, MasterNode} ->
-      ?DBG("Detected master ~p", [Master]),
+      ?LOG("Detected master ~p", [Master]),
       {ok, #state{role = slave, master = Master, master_node = MasterNode, priority = NodePriority}}
   end.
 
@@ -211,7 +211,7 @@ handle_cast(elected, State) ->
 handle_cast({worker_started, {Node, Pid, Name}}, State) when State#state.role == master,
                                                              is_atom(Node), is_pid(Pid), is_atom(Name) ->
   RuningWorkers = State#state.workers ++ [{Node, Pid, Name}],
-  ?DBG("New worker ~p[~p] started at node ~p", [Name, Pid, Node]),
+  ?LOG("New worker ~p[~p] started at node ~p", [Name, Pid, Node]),
   ?DBG("RuningWorkers ~p", [RuningWorkers]),
   {noreply, rebalance_after(State#state{workers = RuningWorkers})};
 
@@ -220,7 +220,7 @@ handle_cast({worker_stoped, {Node, Pid, Name}}, State) when State#state.role == 
                                                             is_atom(Node), is_pid(Pid), is_atom(Name) ->
   RuningWorkers = State#state.workers -- [{Node, Pid, Name}],
   statistics:forget(Node, Name, Pid),
-  ?DBG("Worker ~p[~p] stoped at node ~p", [Name, Pid, Node]),
+  ?LOG("Worker ~p[~p] stoped at node ~p", [Name, Pid, Node]),
   ?DBG("RuningWorkers ~p", [RuningWorkers]),
   {noreply, rebalance_after(State#state{workers = RuningWorkers})};
 
@@ -389,7 +389,7 @@ handle_info({_From, {node, down, Node}}, State) when State#state.role == master 
       RunningWorkers = lists:filter(fun({WorkerNode, _, _}) ->
         WorkerNode =/= Node
                                    end, State#state.workers),
-      ?DBG("Worker node ~p has down. WorkerNodes are ~p and workers are ~p", [Node, WorkerNodes, RunningWorkers]);
+      ?LOG("Worker node ~p has down. WorkerNodes are ~p", [Node, WorkerNodes]);
     _ ->
       WorkerNodes = State#state.worker_nodes,
       RunningWorkers = State#state.workers
@@ -440,13 +440,13 @@ code_change(_OldVsn, State, _Extra) ->
 try_become_master(State) ->
   case global:register_name(?MODULE, self(), fun resolve_master/3) of
     yes ->
-      ?DBG("Elected as master ~p [~p]", [node(), self()]),
+      ?LOG("Elected as master ~p [~p]", [node(), self()]),
       elected(),
       State#state{role = master, master = self()};
 
     no  ->
       {Master, MasterNode} = whereis_master(),
-      ?DBG("Detected master ~p", [Master]),
+      ?LOG("Detected master ~p", [Master]),
       State#state{role = slave,  master = Master, master_node = MasterNode}
   end.
 
@@ -470,7 +470,7 @@ resolve_master(Name, Pid1, Pid2) ->
 
 
 cluster_handshake(State) ->
-  ?DBG("Start handshake with nodes", []),
+  ?LOG("Start handshake with cluster", []),
   %% send notification to all
   cluster:notify({master, self()}),
 
@@ -508,7 +508,7 @@ cluster_handshake(State) ->
 
 
 node_handshake(Node, State) ->
-  ?DBG("Start handshake with node ~p", [Node]),
+  ?LOG("Start handshake with node ~p", [Node]),
   cluster:notify(Node, {master, self()}),
 
 

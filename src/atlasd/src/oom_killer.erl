@@ -94,8 +94,10 @@ kill(_Event, State)->
 wait(Event, State) when Event /= kill ->
   case is_pid(State#state.fat_worker_pid) of
     true ->
-      case process_info(State#state.fat_worker_pid) of
+      case rpc:call(State#state.node, erlang, process_info, [State#state.fat_worker_pid, [status]]) of
         undefined ->
+          {next_state, iddle, State};
+        {badrpc, _} ->
           {next_state, iddle, State};
         _ ->
           {next_state, wait, State, 5000}
