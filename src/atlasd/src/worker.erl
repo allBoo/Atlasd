@@ -311,8 +311,9 @@ stop_worker(State) ->
   Worker = (State#state.config)#worker.name,
   ?LOG("Kill worker ~p [~p]", [Worker, State#state.pid]),
 
-  os:cmd(io_lib:format("kill -9 ~p", [State#state.pid])),
   port_close(State#state.port),
+  os:cmd(io_lib:format("kill -9 ~p", [State#state.pid])),
+
   {ok, State#state{port = undefined, pid = undefined}}.
 
 
