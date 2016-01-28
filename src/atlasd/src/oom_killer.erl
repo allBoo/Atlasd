@@ -29,6 +29,7 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
+  node = undefined,
   fat_worker_pid = 0
 }).
 
@@ -68,7 +69,7 @@ start_link(Node) ->
 init([Node]) ->
   ?DBG("Started oom killer"),
   reg:name({oom_killer, Node}),
-  {ok, kill, #state{}, 1000}.
+  {ok, kill, #state{node = Node}, 1000}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -88,7 +89,7 @@ init([Node]) ->
   {stop, Reason :: term(), NewState :: #state{}}).
 
 kill(_Event, State)->
-  {next_state, wait, State#state{fat_worker_pid = kill_fat_worker()}, 1000}.
+  {next_state, wait, State#state{fat_worker_pid = kill_fat_worker(State#state.node)}, 1000}.
 
 wait(Event, State) when Event /= kill ->
   case is_pid(State#state.fat_worker_pid) of
@@ -207,8 +208,8 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 
 
-kill_fat_worker() ->
-  Workers = statistics:get_workers(node()),
+kill_fat_worker(Node) ->
+  Workers = statistics:get_workers(Node),
   if
     Workers /= [] ->
       TaskNames = [X || X <- nested:keys([], Workers),

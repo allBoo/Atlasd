@@ -296,9 +296,10 @@ handle_cast({notify_state, Node, {worker_state, WorkerState}}, State) when State
 
 
 handle_cast({notify_state, Node, {emergency_state, []}}, State) when State#state.role == master ->
-  case reg:find({oom_killer, Node}) of
+  Name = {oom_killer, Node},
+  case reg:find(Name) of
     undefined ->
-      {ok, OomKiller} = supervisor:start_child(master_sup, ?CHILD(oom_killer, [Node]));
+      {ok, OomKiller} = supervisor:start_child(master_sup, ?CHILD(Name, oom_killer, [Node]));
     OomKiller ->
       OomKiller
   end,
