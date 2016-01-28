@@ -1,0 +1,33 @@
+<div class="col-md-4 node-item">
+    <h3>{{ name }} {{{ master_tag }}}</h3>
+
+    <div class="row leg">
+        <div class="col-md-5"><b>ability:</b></div>
+        <div class="col-md-7">{{{ ability }}}</div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-5"><b>free_memory:</b></div>
+        <div class="col-md-7">{{ free_memory }}</div>
+    </div>
+    <div class="row leg">
+        <div class="col-md-5"><b>allocated_memory:</b></div>
+        <div class="col-md-7">{{ allocated_memory }}</div>
+    </div>
+
+    <div class="row leg">
+        <div class="col-md-5"><b>overloaded:</b></div>
+        <div class="col-md-7">{{ overloaded }}</div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-5"><b>load_average:</b></div>
+        <div class="col-md-7">{{ load_average }}</div>
+    </div>
+    <div class="row">
+        <div class="col-md-5"><b>per_cpu:</b></div>
+        <div class="col-md-7">
+            {{{ per_cpu }}}
+        </div>
+    </div>
+</div>
