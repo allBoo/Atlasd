@@ -21,7 +21,8 @@
 
   get_workers/1,
   whereis_master/0,
-  get_worker_instances/1
+  get_worker_instances/1,
+  get_monitors/0
 ]).
 
 %% gen_server callbacks
@@ -83,6 +84,9 @@ get_worker_instances(Worker) when is_list(Worker) ->
   get_worker_instances(list_to_atom(Worker));
 get_worker_instances(Worker) when is_atom(Worker) ->
   gen_server:call(?SERVER, {get_worker_instances, Worker}).
+
+get_monitors() ->
+  gen_server:call(?SERVER, get_monitors).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -164,6 +168,8 @@ handle_call({get_workers, Node}, _From, State) ->
   Workers = cluster:poll(Node, get_workers),
   {reply, {ok, Workers}, State};
 
+handle_call(get_monitors, _From, State) ->
+  {reply, master_monitors_sup:get_running_monitors(), State};
 
 handle_call({get_worker_instances, Worker}, _From, State) ->
   Instances = lists:filter(

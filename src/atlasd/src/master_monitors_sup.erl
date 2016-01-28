@@ -13,11 +13,14 @@
 -include_lib("atlasd.hrl").
 
 %% API
--export([start_link/0]).
+-export([
+  start_link/0,
+  get_running_monitors/0
+]).
 
 %% Supervisor callbacks
 -export([init/1]).
-
+-define(SERVER, ?MODULE).
 %%%===================================================================
 %%% API functions
 %%%===================================================================
@@ -63,6 +66,15 @@ start_link() ->
 init([]) ->
   Monitors = get_master_monitors(),
   {ok, { {one_for_one, 5, 10}, Monitors} }.
+
+get_running_monitors() ->
+  lists:map(fun({MonitorName, Pid, _, [MonitorType]}) ->
+              case MonitorType of
+                monitor_rabbitmq ->
+                  {MonitorName, Pid, MonitorType, gen_fsm:sync_send_all_state_event(Pid, get_data)}
+              end
+            end,
+    supervisor:which_children({global, ?MODULE})).
 
 %%%===================================================================
 %%% Internal functions

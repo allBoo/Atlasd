@@ -14,7 +14,8 @@
 -export([
   config/2,
   export/2,
-  import/2
+  import/2,
+  list/2
 ]).
 
 
@@ -22,6 +23,11 @@ config(Options, _Args) ->
   io:format("Monitor config values:~n", []),
   Config = atlasctl:get_runtime(Options, [get_monitors]),
   io:format("~p~n", [Config]).
+
+list(Options, _Args) ->
+  Node = atlasctl:connect(Options),
+  Monitors = util:rpc_call(Node, get_monitors, []),
+  io:format("Monitors ~p~n", [Monitors]).
 
 export(Options, []) ->
   export(Options, [json]);

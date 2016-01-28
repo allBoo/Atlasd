@@ -17,12 +17,13 @@
   start_link/1,
   mode/0,
   child_specs/1,
-  process_queue/2
+  process_queue/1
 ]).
 
 %% gen_fsm callbacks
 -export([init/1,
-  monitor/2,
+  get_data/2,
+  process/2,
   handle_event/3,
   handle_sync_event/4,
   handle_info/3,
@@ -41,7 +42,9 @@
   minutes_to_add_consumers = 1000,
   exchange,
   queue,
-  task
+  task,
+  data,
+  real_consumers_count
 }).
 
 
@@ -87,7 +90,8 @@ child_specs(Config) ->
                       minutes_to_add_consumers = Task#rabbitmq_monitor_task.minutes_to_add_consumers,
                       exchange = Task#rabbitmq_monitor_task.exchange,
                       queue = Task#rabbitmq_monitor_task.queue,
-                      task = Task#rabbitmq_monitor_task.task
+                      task = Task#rabbitmq_monitor_task.task,
+                      data = []
                     }
                   ]}, permanent, 5000, worker, [?MODULE]}
                 end,
@@ -112,7 +116,7 @@ child_specs(Config) ->
   {stop, Reason :: term()} | ignore).
 init([Config]) ->
   ?DBG("Started rabbitmq monitor for worker ~p", [Config#state.task]),
-  {ok, monitor, Config, 10000}.
+  {ok, get_data, Config, 1}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -125,15 +129,20 @@ init([Config]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(monitor(Event :: term(), State :: #state{}) ->
+-spec(get_data(Event :: term(), State :: #state{}) ->
   {next_state, NextStateName :: atom(), NextState :: #state{}} |
   {next_state, NextStateName :: atom(), NextState :: #state{},
     timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
 
-monitor(_Event, State) ->
-  process_queue(rabbitmq_api:get_queue_by_name(State), State),
-  {next_state, monitor, State, 10000}.
+get_data(_Event, State) ->
+  Data = rabbitmq_api:get_queue_by_name(State),
+  {next_state, process, State#state{data = Data, real_consumers_count = length(master:get_worker_instances(State#state.task))}, 1}.
+
+process(_Event, State) ->
+  process_queue(State),
+  {next_state, get_data, State, 10000}.
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -172,6 +181,10 @@ handle_event(_Event, StateName, State) ->
     timeout() | hibernate} |
   {stop, Reason :: term(), Reply :: term(), NewStateData :: term()} |
   {stop, Reason :: term(), NewStateData :: term()}).
+
+handle_sync_event(get_data, _From, StateName, State) ->
+  {reply, {State#state.data, State#state.real_consumers_count}, StateName, State};
+
 handle_sync_event(_Event, _From, StateName, State) ->
   Reply = ok,
   {reply, Reply, StateName, State}.
@@ -226,8 +239,9 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-process_queue(Queue, State) when Queue /= false ->
-  ConsumersCount = length(master:get_worker_instances(State#state.task)),
+process_queue(State) when State#state.data /= false ->
+  Queue = State#state.data,
+  ConsumersCount = State#state.real_consumers_count,
   Estimated_time =
     if
       Queue#queue.ack_rate == 0.0 -> -1;
@@ -281,7 +295,7 @@ process_queue(Queue, State) when Queue /= false ->
 %%  ?DBG("--------------------------------------------------"),
   ok;
 
-process_queue(Queue, State) when Queue == false ->
+process_queue(State) when State#state.data == false ->
   ?WARN("Queue proccess failed ~p", [State]),
   failed.
 
