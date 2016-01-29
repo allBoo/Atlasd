@@ -14,6 +14,8 @@
 -export([
   list/2,
   restart/2,
+  start/2,
+  stop/2,
   config/2,
   export/2,
   import/2
@@ -45,6 +47,30 @@ restart(Options, Workers) ->
   Node = atlasctl:connect(Options),
   io:format("Restart workers ~p on all nodes", [Workers]),
   Response = util:rpc_call(Node, restart_workers, [Workers]),
+  io:format("~p~n", [Response]).
+
+
+stop(Options, []) ->
+  Node = atlasctl:connect(Options),
+  io:format("Stop all workers on all nodes", []),
+  Response = util:rpc_call(Node, stop_workers, []),
+  io:format("~p~n", [Response]);
+stop(Options, Workers) ->
+  Node = atlasctl:connect(Options),
+  io:format("Stop workers ~p on all nodes", [Workers]),
+  Response = util:rpc_call(Node, stop_workers, [Workers]),
+  io:format("~p~n", [Response]).
+
+
+start(Options, []) ->
+  Node = atlasctl:connect(Options),
+  io:format("Start all workers on all nodes", []),
+  Response = util:rpc_call(Node, start_workers, []),
+  io:format("~p~n", [Response]);
+start(Options, Workers) ->
+  Node = atlasctl:connect(Options),
+  io:format("Start workers ~p on all nodes", [Workers]),
+  Response = util:rpc_call(Node, start_workers, [Workers]),
   io:format("~p~n", [Response]).
 
 

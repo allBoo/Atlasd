@@ -274,6 +274,38 @@ handle_cast({set_monitors, Monitors}, State) when State#state.role == master ->
   {noreply, State};
 
 
+%% start workers on all nodes
+handle_cast(start_workers, State) when State#state.role == master ->
+  Config = lists:map(fun(Worker) -> Worker#worker{enabled = true} end, State#state.worker_config),
+  {noreply, rebalance_after(State#state{worker_config = Config})};
+
+handle_cast({start_workers, Workers}, State) when State#state.role == master ->
+  Config = lists:map(fun(Worker) ->
+                       case lists:member(Worker#worker.name, Workers) of
+                         true -> Worker#worker{enabled = true};
+                         _ -> Worker
+                       end
+                     end, State#state.worker_config),
+  {noreply, rebalance_after(State#state{worker_config = Config})};
+
+
+%% stop workers on all nodes
+handle_cast(stop_workers, State) when State#state.role == master ->
+  do_stop_workers(State#state.workers),
+  Config = lists:map(fun(Worker) -> Worker#worker{enabled = false} end, State#state.worker_config),
+  {noreply, State#state{worker_config = Config}};
+
+handle_cast({stop_workers, Workers}, State) when State#state.role == master ->
+  Running = lists:filter(fun({_, _, Name}) -> lists:member(Name, Workers) end, State#state.workers),
+  Config = lists:map(fun(Worker) ->
+                       case lists:member(Worker#worker.name, Workers) of
+                         true -> Worker#worker{enabled = false};
+                         _ -> Worker
+                       end
+                     end, State#state.worker_config),
+  do_stop_workers(Running),
+  {noreply, State#state{worker_config = Config}};
+
 %% restart workers on all nodes
 handle_cast(restart_workers, State) when State#state.role == master ->
   do_restart_workers(State#state.workers),
@@ -576,7 +608,7 @@ do_rebalance(State) ->
 
 
 ensure_all_known(WorkersConfig, Workers) ->
-  KnownWorkersNames = lists:map(fun(Worker) -> Worker#worker.name end, WorkersConfig),
+  KnownWorkersNames = [Worker#worker.name || Worker <- WorkersConfig, Worker#worker.enabled == true],
   UnknownWorkers = lists:filter(fun({_Node, _Pid, Name}) ->
                                   not lists:member(Name, KnownWorkersNames)
                                 end, Workers),
@@ -590,7 +622,10 @@ ensure_all_known(WorkersConfig, Workers) ->
 ensure_runing([], _, _) ->
   ok;
 
-ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) ->
+ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker.enabled =/= true ->
+  ensure_runing(WorkersConfig, Workers, Nodes);
+
+ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker.enabled == true ->
   ProcsConfig = WorkerCfg#worker.procs,
 
   %% static instances count
