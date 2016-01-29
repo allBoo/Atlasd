@@ -40,6 +40,7 @@
   forget/1,
   set_workers/1,
   set_monitors/1,
+  get_monitors/0,
   stop/0,
   stop_cluster/0
 ]).
@@ -137,6 +138,9 @@ worker_stoped({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
 %% get runtime config variable from master node
 get_runtime(Request) ->
   gen_server:call(?SERVER, {get_runtime, Request}).
+
+get_monitors() ->
+  gen_server:call(?SERVER, get_monitors).
 
 %% returns list of running workers
 get_workers(Node) when is_list(Node) ->
@@ -238,6 +242,13 @@ handle_call(get_workers, _From, State) ->
 handle_call({get_workers, Node}, _From, State) when is_pid(State#state.master) ->
   {reply, gen_server:call(State#state.master, {get_workers, Node}), State};
 handle_call({get_workers, _Node}, _From, State) ->
+  {reply, {error, "master node is not started"}, State};
+
+
+
+handle_call(get_monitors, _From, State) when is_pid(State#state.master) ->
+  {reply, gen_server:call(State#state.master, get_monitors), State};
+handle_call({get_monitors, _Node}, _From, State) ->
   {reply, {error, "master node is not started"}, State};
 
 

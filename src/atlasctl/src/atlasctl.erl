@@ -331,6 +331,7 @@ monitors(_Options, []) ->
 monitors(Options, Args) ->
   [Cmd | CmdArgs] = Args,
   case list_to_atom(Cmd) of
+    list -> monitors:list(Options, CmdArgs);
     config -> monitors:config(Options, CmdArgs);
     export -> monitors:export(Options, CmdArgs);
     import -> monitors:import(Options, CmdArgs);
