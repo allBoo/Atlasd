@@ -609,6 +609,7 @@ do_rebalance(State) ->
   %% ensure there are no unknown workers
   ensure_all_known(State#state.worker_config, State#state.workers),
   %% ensure all workers are runing
+  ?DBG("Ensure runing", []),
   ensure_runing(State#state.worker_config, State#state.workers, State#state.worker_nodes),
   State#state{rebalanced = os:timestamp()}.
 
@@ -654,7 +655,7 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker
                                      [ProcsConfig#worker_procs.min, ProcsConfig#worker_procs.max]
                                  end,
 
-  Instances = get_worker_instances(WorkerCfg#worker.name, Workers),
+  Instances = get_worker_instances_sorted_by_cpu(WorkerCfg#worker.name, Workers),
   InstancesCount = length(Instances),
   if
     (InstancesCount >= MinInstances) and (InstancesCount =< MaxInstances) -> ok;
@@ -663,7 +664,7 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker
       NewCount = MinInstances - InstancesCount,
       ?DBG("Count instances of ~p is lower than ~p",
         [WorkerCfg#worker.name, MinInstances]),
-      run_workers(NewCount, WorkerCfg, Instances, Nodes);
+      run_workers(NewCount, WorkerCfg, Instances, Nodes, Workers);
 
     InstancesCount > MaxInstances ->
       KillCount = InstancesCount - MaxInstances,
@@ -688,6 +689,27 @@ run_workers(Count, WorkerCfg, Instances, Nodes) ->
       error
   end.
 
+%% run number of new workers
+run_workers(Count, WorkerCfg, Instances, Nodes, Workers) ->
+  AvailableNodes = master_utils:filter_nodes(WorkerCfg, Instances, Nodes),
+  ?DBG("get_node_for_worker ~w", [get_node_for_worker(Nodes, WorkerCfg, Workers, Count)]),
+  if
+    length(AvailableNodes) > 0 ->
+      ?DBG("Run ~p new workers ~p on ~p", [Count, WorkerCfg#worker.name, AvailableNodes]),
+      run_worker_at(WorkerCfg, Count, AvailableNodes);
+
+    true ->
+      ?WARN("Can not find proper nodes for worker ~p, looking for low priority workers", [WorkerCfg#worker.name]),
+      case get_node_for_worker(Nodes, WorkerCfg, Workers, Count) of
+        [{Node, Instances} | _Tail] ->
+          lists:foreach(fun(W) ->
+                            do_stop_worker(W)
+                        end, Instances),
+          run_worker_at(WorkerCfg, Count, [Node]);
+        _ ->
+          error
+      end
+  end.
 
 run_worker_at(_, _, []) ->
   error;
@@ -724,6 +746,7 @@ stop_workers(Count, WorkerCfg, Instances) ->
 
   if
     length(StopWorkers) > 0 ->
+
       ?DBG("Stop ~p workers ~p on ~p", [Count, WorkerCfg#worker.name, StopWorkers]),
       stop_worker_at(Count, StopWorkers);
 
@@ -754,6 +777,58 @@ do_stop_workers([Worker | Workers]) ->
   do_stop_worker(Worker),
   do_stop_workers(Workers).
 
+get_node_for_worker(Nodes, WorkerCfg, Workers, Count) ->
+  WorkerAvgStat = statistics:get_worker_avg_stat(WorkerCfg#worker.name),
+  LPWorkers = lists:filter(fun({_,Pid,_}) ->
+        Conf = worker:get_config(Pid),
+        Conf#worker.priority < WorkerCfg#worker.priority
+      end, Workers),
+  WorkersStates = get_workers_states(LPWorkers),
+  {WStat, _WOStat} = lists:partition(fun(WS) -> tuple_size(WS) == 4 end, WorkersStates),
+  F1 = fun(El1, El2) -> length(element(2, El1)) < element(2, El2) end,
+  lists:sort(F1, lists:filtermap(fun(Node) ->
+                            F = fun({_,_,_,X}, {_,_,_,Y}) -> X#worker_state.memory > Y#worker_state.memory end,
+                            NodeWorkerStates = lists:sort(F, lists:filter(fun({N,_,_,_})->
+                                N == Node
+                            end, WStat)),
+                            {EnoughWorkers, _Acc} = lists:mapfoldl(fun({N,P,Nm,S}, Acc) ->
+                                case S#worker_state.memory of
+                                  X when Acc < (WorkerAvgStat#avg_worker.avg_mem*Count) ->
+                                    {{true, {N, P, Nm}}, Acc+X};
+                                 _ -> {false, Acc}
+                               end
+                           end, 0, NodeWorkerStates),
+                            case length(EnoughWorkers) > 0 of
+                              true ->
+                                {true, {Node, lists:filtermap(fun(El) -> El end, EnoughWorkers)}};
+                              _ ->
+                                false
+                            end
+                         end, Nodes)).
+
+get_workers_states(Workers) ->
+  Statistics = statistics:get_all_workers(),
+  lists:map(fun({Node, WorkerPid, Name}) ->
+        case is_map(Statistics) andalso nested:get([Node, Name, WorkerPid], Statistics, []) of
+                        X when is_record(X, worker_state)  ->
+                          {Node, WorkerPid, Name, X};
+                        _ ->
+                          {Node, WorkerPid, Name}
+                      end
+            end, Workers).
+
+get_worker_instances_sorted_by_cpu(WorkerName, Workers) ->
+  WorkersStates = lists:filter(fun(WS) ->
+                      element(3, WS) == WorkerName
+                 end, get_workers_states(Workers)),
+  {WStat, WOStat} = lists:partition(fun(WS) -> tuple_size(WS) == 4 end, WorkersStates),
+  Sorted = case WStat of
+             Z when length(Z) > 0 ->
+               F = fun({_,_,_,X}, {_,_,_,Y}) -> X#worker_state.cpu < Y#worker_state.cpu end,
+               lists:map(fun({Node, Pid, Worker, _}) -> {Node, Pid, Worker} end, lists:sort(F, Z));
+             _ -> []
+           end,
+  lists:append(Sorted, WOStat).
 
 %% return list of worker instances
 get_worker_instances(WorkerName, WorkersList) ->
