@@ -309,7 +309,7 @@ loop() ->
 
 
 workers(_Options, []) ->
-  io:format("Available options are: list, config, export, import, restart~n");
+  io:format("Available options are: list, config, export, import, restart, stop~n");
 workers(Options, Args) ->
   [Cmd | CmdArgs] = Args,
   case list_to_atom(Cmd) of
@@ -318,6 +318,8 @@ workers(Options, Args) ->
     export -> workers:export(Options, CmdArgs);
     import -> workers:import(Options, CmdArgs);
     restart -> workers:restart(Options, CmdArgs);
+    stop  -> workers:stop(Options, CmdArgs);
+    start  -> workers:start(Options, CmdArgs);
 
     E ->
       util:err_msg("Unknown workers command ~p", [E])

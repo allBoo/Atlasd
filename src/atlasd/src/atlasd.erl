@@ -21,7 +21,11 @@
   worker_started/1,
   worker_stoped/1,
   start_worker/1,
+  start_workers/0,
+  start_workers/1,
   stop_worker/1,
+  stop_workers/0,
+  stop_workers/1,
   restart_worker/1,
   restart_workers/0,
   restart_workers/1,
@@ -79,9 +83,22 @@ is_master() ->
 start_worker(Worker) when is_record(Worker, worker); is_atom(Worker); is_list(Worker) ->
   gen_server:cast(?SERVER, {start_worker, Worker}).
 
+start_workers() ->
+  gen_server:cast(?SERVER, start_workers).
+
+start_workers(Workers) ->
+  gen_server:cast(?SERVER, {start_workers, Workers}).
+
 %% stop worker
 stop_worker(WorkerPid) when is_pid(WorkerPid) ->
   gen_server:cast(?SERVER, {stop_worker, WorkerPid}).
+
+%% stop workers
+stop_workers() ->
+  gen_server:cast(?SERVER, stop_workers).
+
+stop_workers(Workers) ->
+  gen_server:cast(?SERVER, {stop_workers, Workers}).
 
 %% restart worker
 restart_worker(WorkerPid) when is_pid(WorkerPid) ->
@@ -293,12 +310,33 @@ handle_cast({start_worker, Worker}, State) ->
   do_start_worker(Worker),
   {noreply, State};
 
+handle_cast(start_workers, State) when is_pid(State#state.master) ->
+  ?LOG("Try to start all workers", []),
+  gen_server:cast(State#state.master, start_workers),
+  {noreply, State};
+
+handle_cast({start_workers, Workers}, State) when is_pid(State#state.master) ->
+  WorkersList = lists:map(fun(El) -> if is_list(El) -> list_to_atom(El); true -> El end end, Workers),
+  ?LOG("Try to start workers ~p", [WorkersList]),
+  gen_server:cast(State#state.master, {start_workers, WorkersList}),
+  {noreply, State};
+
 %% stop worker
 handle_cast({stop_worker, WorkerPid}, State) when is_pid(WorkerPid) ->
   ?LOG("Try to gracefully stop worker ~p", [WorkerPid]),
   do_stop_worker(WorkerPid),
   {noreply, State};
 
+handle_cast(stop_workers, State) when is_pid(State#state.master) ->
+  ?LOG("Try to gracefully stop all workers", []),
+  gen_server:cast(State#state.master, stop_workers),
+  {noreply, State};
+
+handle_cast({stop_workers, Workers}, State) when is_pid(State#state.master) ->
+  WorkersList = lists:map(fun(El) -> if is_list(El) -> list_to_atom(El); true -> El end end, Workers),
+  ?LOG("Try to gracefully stop workers ~p", [WorkersList]),
+  gen_server:cast(State#state.master, {stop_workers, WorkersList}),
+  {noreply, State};
 
 %% restart worker
 handle_cast({restart_worker, WorkerPid}, State) when is_pid(WorkerPid) ->
