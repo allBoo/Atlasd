@@ -18,7 +18,8 @@
   stop/2,
   config/2,
   export/2,
-  import/2
+  import/2,
+  log/2
 ]).
 
 
@@ -32,6 +33,43 @@ list(Options, Args) ->
   Response = util:rpc_call(Node, master, get_workers, [TargetNode]),
   io:format("~p~n", [Response]).
 
+log(_Options, []) ->
+  util:err_msg("You should pass the worker~n");
+log(Options, Args) ->
+  [TargetWorker | _] = Args,
+  Node = atlasctl:connect(Options),
+  Workers = util:rpc_call(Node, master, get_workers, [all]),
+
+  WorkersNodes = lists:filtermap(fun({N, Ws}) ->
+    FoundedWorkers = lists:filter(
+      fun({P, _}) ->
+        TargetWorker == pid_to_list(P)
+      end, Ws),
+    case length(FoundedWorkers) of
+      1 ->
+        {true, {N, lists:nth(1, FoundedWorkers)}};
+      _ -> false
+    end
+  end, Workers),
+
+  case length(WorkersNodes) of
+    1 ->
+      {WorkerNode, {WorkerPid, _}} = lists:nth(1, WorkersNodes),
+      S = self(),
+      F = fun(N) -> S ! N end,
+      rpc:call(WorkerNode, worker, set_log_handler, [WorkerPid, F, atlasctl]),
+      loop();
+    _ ->
+      util:err_msg("No worker found for that pid ~n")
+  end,
+  ok.
+
+loop() ->
+  receive
+    Msg ->
+      util:dbg("Message ~p", [Msg]),
+      loop()
+  end.
 
 restart(Options, []) ->
   Node = atlasctl:connect(Options),
