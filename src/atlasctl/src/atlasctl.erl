@@ -35,7 +35,6 @@
   workers/2,
   monitors/2,
   get_runtime/2,
-  worker_log/2,
 
   %% nodetool commands
   getpid/2,
@@ -283,37 +282,14 @@ forget(Options, Args) ->
 
   ok.
 
-worker_log(Options, Args) ->
-  case Args of
-    [TargetWorker | _] ->
-      connect(Options),
-      WorkerPid = list_to_pid(TargetWorker),
-      TargetNode = node(WorkerPid),
-      %util:dbg("Node ~p workers ~p~n",[TargetNode, rpc:call(TargetNode, workers_sup, get_workers, [])]),
-      S = self(),
-      F = fun(N) -> S ! N end,
-      rpc:call(TargetNode, worker, set_log_handler, [WorkerPid, F, atlasctl]),
-      loop();
-    _ ->
-      util:err_msg("You should pass the worker~n")
-  end,
-
-  ok.
-
-loop() ->
-  receive
-    Msg ->
-      util:dbg("Message ~p", [Msg]),
-      loop()
-  end.
-
 
 workers(_Options, []) ->
-  io:format("Available options are: list, config, export, import, restart, stop~n");
+  io:format("Available options are: list, log, config, export, import, restart, stop~n");
 workers(Options, Args) ->
   [Cmd | CmdArgs] = Args,
   case list_to_atom(Cmd) of
     list -> workers:list(Options, CmdArgs);
+    log -> workers:log(Options, CmdArgs);
     config -> workers:config(Options, CmdArgs);
     export -> workers:export(Options, CmdArgs);
     import -> workers:import(Options, CmdArgs);
