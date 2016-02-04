@@ -29,6 +29,7 @@ start_link() ->
 auth_fun(Req, User, Password) ->
   case elli_request:path(Req) of
     [<<"nodes">>] -> password_check(User, Password);
+    [<<"worker">>, <<"log">>, _, _] -> password_check(User, Password);
     _ -> ok
   end.
 
