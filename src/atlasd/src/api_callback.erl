@@ -25,25 +25,12 @@ handle('GET',[<<"nodes">>], _Req) ->
 
 handle('GET',[<<"worker">>, <<"log">>, Pid, LineId], _Req) ->
   TargetWorker = "<" ++ binary_to_list(Pid) ++ ">",
-  {_Response_status, Workers} = master:get_workers(all),
-  WorkersNodes = lists:filtermap(fun({N, Ws}) ->
-                                  FoundedWorkers = lists:filter(
-                                    fun({P, _}) ->
-                                      TargetWorker == pid_to_list(P)
-                                    end, Ws),
-                                  case length(FoundedWorkers) of
-                                    1 ->
-                                      {true, {N, lists:nth(1, FoundedWorkers)}};
-                                    _ -> false
-                                  end
-                                 end, Workers),
-  {Response_status, Log} = case length(WorkersNodes) of
-    1 ->
-      {_WorkerNode, {WorkerPid, _}} = lists:nth(1, WorkersNodes),
-      {ok, worker:get_log(WorkerPid, binary_to_integer(LineId))};
-    _ ->
-      {invalid_pid, ""}
+  {Response_status, Log} = try list_to_pid(TargetWorker) of
+    X -> {ok, worker:get_log(X, binary_to_integer(LineId))}
+  catch
+    _:_ ->  {invalid_pid, ""}
   end,
+
   Response = jiffy:encode(#{
     <<"status">> => Response_status,
     <<"log">> => lists:map(fun(L) ->
