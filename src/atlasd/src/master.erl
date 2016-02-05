@@ -654,7 +654,7 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker
                                      [ProcsConfig#worker_procs.min, ProcsConfig#worker_procs.max]
                                  end,
 
-  Instances = get_worker_instances(WorkerCfg#worker.name, Workers),
+  Instances = get_worker_instances_sorted_by_cpu(WorkerCfg#worker.name, Workers),
   InstancesCount = length(Instances),
   if
     (InstancesCount >= MinInstances) and (InstancesCount =< MaxInstances) -> ok;
@@ -724,6 +724,7 @@ stop_workers(Count, WorkerCfg, Instances) ->
 
   if
     length(StopWorkers) > 0 ->
+
       ?DBG("Stop ~p workers ~p on ~p", [Count, WorkerCfg#worker.name, StopWorkers]),
       stop_worker_at(Count, StopWorkers);
 
@@ -753,6 +754,31 @@ do_stop_workers([]) -> ok;
 do_stop_workers([Worker | Workers]) ->
   do_stop_worker(Worker),
   do_stop_workers(Workers).
+
+get_worker_instances_sorted_by_cpu(WorkerName, Workers) ->
+  Statistics = statistics:get_all_workers(),
+  WorkersStates = lists:filtermap(fun({Node, WorkerPid, Name}) ->
+                      case Name == WorkerName of
+                        true ->
+                          case is_map(Statistics) andalso nested:get([Node, Name, WorkerPid], Statistics, []) of
+                                        X when is_record(X, worker_state)  ->
+                                          {true, {Node, WorkerPid, Name, X}};
+                                        _ ->
+                                          {true, {Node, WorkerPid, Name}}
+                                      end;
+                        _ ->
+                          false
+                      end
+                 end, Workers),
+  {WStat, WOStat} = lists:partition(fun(WS) -> tuple_size(WS) == 4 end, WorkersStates),
+  Sorted = case WStat of
+    Z when length(Z) > 0 ->
+      F = fun({_,_,_,X}, {_,_,_,Y}) -> X#worker_state.cpu < Y#worker_state.cpu end,
+      lists:map(fun({Node, Pid, Worker, _}) -> {Node, Pid, Worker} end, lists:sort(F, Z));
+    _ -> []
+  end,
+
+  lists:append(Sorted, WOStat).
 
 
 %% return list of worker instances
