@@ -810,12 +810,17 @@ get_node_for_worker(Nodes, WorkerCfg, Workers, Count) ->
 get_workers_states(Workers) ->
   Statistics = statistics:get_all_workers(),
   lists:map(fun({Node, WorkerPid, Name}) ->
-        case is_map(Statistics) andalso nested:get([Node, Name, WorkerPid], Statistics, []) of
-                        X when is_record(X, worker_state)  ->
-                          {Node, WorkerPid, Name, X};
-                        _ ->
-                          {Node, WorkerPid, Name}
-                      end
+                  try
+                    case is_map(Statistics) andalso nested:get([Node, Name, WorkerPid], Statistics, []) of
+                      X when is_record(X, worker_state)  ->
+                        {Node, WorkerPid, Name, X};
+                      _ ->
+                        {Node, WorkerPid, Name}
+                    end
+                  catch
+                    _:_ ->
+                    {Node, WorkerPid, Name}
+                  end
             end, Workers).
 
 get_worker_instances_sorted_by_cpu(WorkerName, Workers) ->
