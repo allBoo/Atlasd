@@ -780,8 +780,8 @@ do_stop_workers([Worker | Workers]) ->
 
 get_node_for_worker(Nodes, WorkerCfg, Workers, Count) ->
   WorkerAvgStat = statistics:get_worker_avg_stat(WorkerCfg#worker.name),
-  LPWorkers = lists:filter(fun({_,Pid,_}) ->
-        Conf = worker:get_config(Pid),
+  LPWorkers = lists:filter(fun({_,_,Name}) ->
+        Conf = config:worker(Name),
         Conf#worker.priority < WorkerCfg#worker.priority
       end, Workers),
   WorkersStates = get_workers_states(LPWorkers),
