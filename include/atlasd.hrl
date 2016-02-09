@@ -36,7 +36,7 @@
 %%% Worker spec
 %%% ====================================================================
 -record(worker_procs, {
-  min          = 1        :: integer(),
+  min          = 0        :: integer(),
   max          = infinity :: integer() | infinity,
   allways      = 0        :: integer(),
   max_per_node = infinity :: integer() | infinity,
@@ -55,26 +55,9 @@
   nodes    = []               :: list(),
   restart  = simple           :: simple | disallow | prestart,
   max_mem  = infinity         :: infinity | string(),
-  procs    = #worker_procs{},
+  procs    = #worker_procs{}  :: #worker_procs{},
   monitor  = []               :: [#worker_monitor{}],
   enabled  = true             :: boolean()
-}).
-
--record(rabbitmq_monitor_task, {
-  task :: string(),
-  exchange = parsley :: parsley | atom(),
-  queue :: string(),
-  vhost = "%2f",
-  minutes_to_add_consumers = 1000
-}).
-
--record(rabbitmq_monitor, {
-  mode = api :: api | native | atom(),
-  host :: string(),
-  port = "15672",
-  user = "guest" :: string(),
-  pass = "guest" :: string(),
-  tasks = [] :: [#rabbitmq_monitor_task{}]
 }).
 
 %%-record(os_monitor, {
@@ -83,7 +66,7 @@
 
 -record(monitor, {
   name :: atom(),
-  config :: #rabbitmq_monitor{}
+  config :: any()
 }).
 
 

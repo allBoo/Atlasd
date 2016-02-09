@@ -28,8 +28,8 @@ err_msg(Msg, Opts) ->
   io:format("ERROR: " ++ Msg ++ "~n", Opts).
 
 dbg(Msg) -> dbg(Msg, []).
-dbg(_Msg, _Opts) -> ok.
-  %io:format("DEBUG: " ++ Msg ++ "~n", Opts).
+dbg(Msg, Opts) -> %ok.
+  io:format("DEBUG: " ++ Msg ++ "~n", Opts).
 
 rpc_call(Node, Module, Action, Args) ->
   case rpc:call(Node, Module, Action, Args) of
