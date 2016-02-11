@@ -229,7 +229,7 @@ kill_fat_worker(Node) ->
       ?DBG("Workers count that can be killed ~w", [length(WorkersStates)]),
       case get_fat_worker(WorkersStates) of
         {ok, FatWorker} ->
-          cluster:notify(node(), {stop_worker, FatWorker#worker_state.pid}),
+          cluster:notify(Node, {stop_worker, FatWorker#worker_state.pid}),
           FatWorker#worker_state.pid;
         _ -> false
       end;
