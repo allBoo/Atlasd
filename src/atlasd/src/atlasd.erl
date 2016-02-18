@@ -17,7 +17,10 @@
   start_link/0,
   is_worker/0,
   is_master/0,
+  get_group/0,
+  in_group/1,
   get_workers/1,
+  get_group_workers/1,
   worker_started/1,
   worker_stoped/1,
   start_worker/1,
@@ -79,6 +82,20 @@ is_worker() ->
 %% test if node is a master
 is_master() ->
   config:get("node.master", false, boolean).
+
+get_group() ->
+  config:get("node.group", none, atom).
+
+
+
+in_group(Group) when is_list(Group) ->
+  in_group(list_to_atom(Group));
+
+in_group(Group) when is_atom(Group) ->
+  case get_group() of
+    X when X =:= Group -> true;
+    _ -> false
+  end.
 
 %% start worker
 start_worker(Worker) when is_record(Worker, worker); is_atom(Worker); is_list(Worker) ->
@@ -147,6 +164,9 @@ get_workers(Node) when is_list(Node) ->
   get_workers(list_to_atom(Node));
 get_workers(Node) ->
   gen_server:call(?SERVER, {get_workers, Node}).
+
+get_group_workers(Group) ->
+  gen_server:call(?SERVER, {get_group_workers, Group}).
 
 %% returns list of connected nodes
 get_nodes() ->
@@ -232,6 +252,9 @@ handle_call(is_worker, _From, State) ->
 handle_call(is_master, _From, State) ->
   {reply, is_master(), State};
 
+handle_call(get_group, _From, State) ->
+  {reply, get_group(), State};
+
 
 handle_call(get_workers, _From, State) ->
   case is_worker() of
@@ -244,6 +267,14 @@ handle_call({get_workers, Node}, _From, State) when is_pid(State#state.master) -
 handle_call({get_workers, _Node}, _From, State) ->
   {reply, {error, "master node is not started"}, State};
 
+
+handle_call({get_group_workers, Group}, _From, State) ->
+  case
+    in_group(Group) and is_worker() of true ->
+      {reply, workers_sup:get_group_workers(Group), State};
+    _ ->
+      {reply, ignore, State}
+  end;
 
 
 handle_call(get_monitors, _From, State) when is_pid(State#state.master) ->

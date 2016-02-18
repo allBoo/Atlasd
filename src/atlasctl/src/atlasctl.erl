@@ -289,11 +289,14 @@ workers(Options, Args) ->
   [Cmd | CmdArgs] = Args,
   case list_to_atom(Cmd) of
     list -> workers:list(Options, CmdArgs);
+    group_list -> workers:group_list(Options, CmdArgs);
     log -> workers:log(Options, CmdArgs);
     config -> workers:config(Options, CmdArgs);
     export -> workers:export(Options, CmdArgs);
     import -> workers:import(Options, CmdArgs);
     restart -> workers:restart(Options, CmdArgs);
+    restart_group -> workers:restart_group(Options, CmdArgs);
+    stop_group -> workers:stop_group(Options, CmdArgs);
     stop  -> workers:stop(Options, CmdArgs);
     start  -> workers:start(Options, CmdArgs);
 

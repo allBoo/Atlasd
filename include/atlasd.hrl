@@ -57,7 +57,8 @@
   max_mem  = infinity         :: infinity | string(),
   procs    = #worker_procs{},
   monitor  = []               :: [#worker_monitor{}],
-  enabled  = true             :: boolean()
+  enabled  = true             :: boolean(),
+  group    = none             :: none | atom()
 }).
 
 -record(rabbitmq_monitor_task, {

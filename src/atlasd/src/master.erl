@@ -20,6 +20,7 @@
   resolve_master/3,
 
   get_workers/1,
+  get_group_workers/1,
   whereis_master/0,
   get_worker_instances/1,
   get_monitors/0
@@ -79,6 +80,9 @@ get_workers(Node) when is_list(Node) ->
   get_workers(list_to_atom(Node));
 get_workers(Node) ->
   gen_server:call(?SERVER, {get_workers, Node}).
+
+get_group_workers(Group) ->
+  gen_server:call(?SERVER, {get_group_workers, Group}).
 
 get_worker_instances(Worker) when is_list(Worker) ->
   get_worker_instances(list_to_atom(Worker));
@@ -152,6 +156,7 @@ handle_call(get_nodes, _From, State) when State#state.role == master ->
   Nodes = lists:map(fun(Node) ->
     {Node, #{
       name        => Node,
+      group       => atlasd:get_group(),
       master_node => Node =:= node(),
       is_worker   => lists:member(Node, State#state.worker_nodes),
       is_master   => lists:member(Node, State#state.master_nodes),
@@ -166,6 +171,10 @@ handle_call({get_workers, all}, _From, State) ->
   {reply, {ok, Workers}, State};
 handle_call({get_workers, Node}, _From, State) ->
   Workers = cluster:poll(Node, get_workers),
+  {reply, {ok, Workers}, State};
+
+handle_call({get_group_workers, Group}, _From, State) ->
+  Workers = cluster:poll({get_group_workers, Group}),
   {reply, {ok, Workers}, State};
 
 handle_call(get_monitors, _From, State) ->
@@ -664,7 +673,20 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker
       NewCount = MinInstances - InstancesCount,
       ?DBG("Count instances of ~p is lower than ~p",
         [WorkerCfg#worker.name, MinInstances]),
-      run_workers(NewCount, WorkerCfg, Instances, Nodes, Workers);
+      GroupNodes = lists:filter(fun(N) ->
+                    case cluster:poll(N, get_group) of
+                      X when X == WorkerCfg#worker.group ->
+                        true;
+                      _ ->
+                        false
+                    end
+                   end, Nodes),
+
+      case length(GroupNodes) of
+        X when X == 0 -> ?DBG("No nodes available in group ~p", [WorkerCfg#worker.group]);
+        _ -> run_workers(NewCount, WorkerCfg, Instances, GroupNodes, Workers)
+      end;
+
 
     InstancesCount > MaxInstances ->
       KillCount = InstancesCount - MaxInstances,

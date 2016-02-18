@@ -17,6 +17,7 @@
   start_link/0,
   start_worker/1,
   stop_worker/1,
+  get_group_workers/1,
   get_workers/0
 ]).
 
@@ -62,6 +63,16 @@ stop_worker(WorkerPid) when is_pid(WorkerPid) ->
 
 stop_worker(_) ->
   false.
+
+get_group_workers(Group) ->
+  lists:filtermap(fun({_, WorkerSup, _, _}) ->
+      case worker_sup:get_worker_group(WorkerSup) of
+        X when X =:= Group ->
+          {true, worker_sup:get_worker_name(WorkerSup)};
+        _ ->
+          false
+      end
+    end, supervisor:which_children(?SERVER)).
 
 %%
 get_workers() ->

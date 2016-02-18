@@ -16,6 +16,7 @@
 -export([
   start_link/1,
   get_name/1,
+  get_group/1,
   get_proc_pid/1,
   get_config/1,
   get_log/2,
@@ -63,6 +64,9 @@ start_link(Worker) when is_record(Worker, worker) ->
 
 get_name(WorkerRef) when is_pid(WorkerRef) ->
   gen_server:call(WorkerRef, get_name).
+
+get_group(WorkerRef) when is_pid(WorkerRef) ->
+  gen_server:call(WorkerRef, get_group).
 
 
 get_proc_pid(WorkerRef) when is_pid(WorkerRef) ->
@@ -135,6 +139,9 @@ init([Worker]) when is_record(Worker, worker) ->
 
 handle_call(get_name, _From, State) ->
   {reply, (State#state.config)#worker.name, State};
+
+handle_call(get_group, _From, State) ->
+  {reply, (State#state.config)#worker.group, State};
 
 handle_call(get_proc_pid, _From, State) ->
   {reply, State#state.pid, State};
