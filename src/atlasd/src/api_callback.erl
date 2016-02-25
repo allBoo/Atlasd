@@ -23,6 +23,26 @@ handle('GET',[<<"nodes">>], _Req) ->
   }),
   {ok, [], Response};
 
+handle('GET',[<<"worker">>, <<"log">>, Pid, LineId], _Req) ->
+  TargetWorker = "<" ++ binary_to_list(Pid) ++ ">",
+  {Response_status, Log} = try list_to_pid(TargetWorker) of
+    X -> {ok, worker:get_log(X, binary_to_integer(LineId))}
+  catch
+    _:_ ->  {invalid_pid, ""}
+  end,
+
+  Response = jiffy:encode(#{
+    <<"status">> => Response_status,
+    <<"log">> => lists:map(fun(L) ->
+        case L of
+          {LN, LO} -> #{LN => LO};
+          _ -> L
+        end
+    end, Log)
+  }),
+
+  {ok, [], Response};
+
 handle(_, _, _Req) ->
   {404, [], <<"Not Found">>}.
 

@@ -78,7 +78,6 @@ log_enable(WorkerRef) when is_pid(WorkerRef) ->
 log_disable(WorkerRef) when is_pid(WorkerRef) ->
   gen_server:call(WorkerRef, log_disable).
 
-
 get_log(WorkerRef, LineId) when is_pid(WorkerRef) ->
   gen_server:call(WorkerRef, {get_log, LineId}).
 
@@ -144,7 +143,7 @@ handle_call(get_config, _From, State) ->
   {reply, State#state.config, State};
 
 handle_call({get_log, LastLineId}, _From, State) ->
-  Log = [{LogLineId, LogLine} || {LogLineId, LogLine} <- State#state.log, LogLineId > LastLineId],
+  Log = [{integer_to_binary(LogLineId), LogLine} || {LogLineId, LogLine} <- State#state.log, LogLineId >= LastLineId],
   {reply, Log, State};
 
 handle_call(log_enable, _From, State) ->
