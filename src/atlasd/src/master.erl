@@ -45,6 +45,7 @@
   worker_config  = []        :: [#worker{}],                 %% base workers config
   worker_nodes   = []        :: [node()],                    %% list of worker nodes
   master_nodes   = []        :: [node()],                    %% list of master nodes
+  group_nodes    = []        :: [],                    %% list of group nodes
   workers        = []        :: [{node(), pid(), Name :: atom()}],    %% current runing workers
   rebalanced     = 0         :: integer(),
   rebalancer     = undefined :: timer:tref() | undefined,
@@ -551,7 +552,11 @@ cluster_handshake(State) ->
     ]),
   ?DBG("Runing workers are ~p", [RuningWorkers]),
 
-  State#state{worker_nodes = WorkerNodes, workers = RuningWorkers, master_nodes = MasterNodes}.
+  GroupNodes = lists:map(fun(X) ->
+                            {cluster:poll(X, get_group), X}
+                         end, lists:usort(WorkerNodes ++ MasterNodes)),
+  ?DBG("GroupNodes  are ~p", [GroupNodes]),
+  State#state{worker_nodes = WorkerNodes, workers = RuningWorkers, master_nodes = MasterNodes, group_nodes = GroupNodes}.
 
 
 node_handshake(Node, State) ->
@@ -583,7 +588,9 @@ node_handshake(Node, State) ->
       RuningWorkers = State#state.workers
   end,
 
-  State#state{master_nodes = MasterNodes, worker_nodes = WorkerNodes, workers = RuningWorkers}.
+  GroupNodes = State#state.group_nodes ++ {cluster:poll(Node, get_group), Node},
+
+  State#state{master_nodes = MasterNodes, worker_nodes = WorkerNodes, workers = RuningWorkers, group_nodes = lists:usort(GroupNodes)}.
 
 
 %% rebalancing
@@ -619,7 +626,7 @@ do_rebalance(State) ->
   ensure_all_known(State#state.worker_config, State#state.workers),
   %% ensure all workers are runing
   ?DBG("Ensure runing", []),
-  ensure_runing(State#state.worker_config, State#state.workers, State#state.worker_nodes),
+  ensure_runing(State#state.worker_config, State#state.workers, State#state.group_nodes),
   State#state{rebalanced = os:timestamp()}.
 
 
@@ -671,19 +678,10 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker
 
     InstancesCount < MinInstances ->
       NewCount = MinInstances - InstancesCount,
-      ?DBG("Count instances of ~p is lower than ~p",
-        [WorkerCfg#worker.name, MinInstances]),
-      GroupNodes = lists:filter(fun(N) ->
-                    case cluster:poll(N, get_group) of
-                      X when X == WorkerCfg#worker.group ->
-                        true;
-                      _ ->
-                        false
-                    end
-                   end, Nodes),
-
+      ?DBG("Count instances of ~p is lower than ~p", [WorkerCfg#worker.name, MinInstances]),
+      GroupNodes = [Node || {Group, Node} <- Nodes, Group =:= WorkerCfg#worker.group],
       case length(GroupNodes) of
-        X when X == 0 -> ?DBG("No nodes available in group ~p", [WorkerCfg#worker.group]);
+        X when X == 0 -> ?DBG("No nodes available in group ~p ~p", [WorkerCfg#worker.group, Nodes]);
         _ -> run_workers(NewCount, WorkerCfg, Instances, GroupNodes, Workers)
       end;
 

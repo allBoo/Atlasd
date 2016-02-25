@@ -13,12 +13,9 @@
 %% API
 -export([
   list/2,
-  group_list/2,
   restart/2,
-  restart_group/2,
   start/2,
   stop/2,
-  stop_group/2,
   config/2,
   export/2,
   import/2,
@@ -36,29 +33,6 @@ list(Options, Args) ->
   Response = util:rpc_call(Node, master, get_workers, [TargetNode]),
   io:format("~p~n", [Response]).
 
-
-get_group_workers(Options, Group) when is_list(Group)->
-  get_group_workers(Options, list_to_atom(Group));
-
-get_group_workers(Options, Group) when is_atom(Group)->
-  Node = atlasctl:connect(Options),
-  Response = util:rpc_call(Node, master, get_group_workers, [Group]),
-
-  Valid = [V || V <- Response, element(2, V) /= ignore],
-
-  lists:flatmap(fun({N, List}) ->
-    lists:map(fun(L) ->
-                  {N, element(1, L), element(2, L)} end, List)
-           end, Valid).
-
-
-group_list(Options, []) ->
-  group_list(Options, [none]);
-group_list(Options, Args) ->
-  [Group | _] = Args,
-  io:format("Workers list in group ~p~n", [Group]),
-  Response = get_group_workers(Options, Group),
-  io:format("~p~n", [Response]).
 
 log(_Options, []) ->
   util:err_msg("You should pass the worker~n");
@@ -113,17 +87,6 @@ restart(Options, Workers) ->
   io:format("Restart workers ~p on all nodes", [Workers]),
   Response = util:rpc_call(Node, restart_workers, [Workers]),
   io:format("~p~n", [Response]).
-
-
-restart_group(Options, Args) ->
-  [Group | _] = Args,
-  GroupWorkers = get_group_workers(Options, Group),
-  restart(Options, GroupWorkers).
-
-stop_group(Options, Args) ->
-  [Group | _] = Args,
-  GroupWorkers = get_group_workers(Options, Group),
-  stop(Options, GroupWorkers).
 
 stop(Options, []) ->
   Node = atlasctl:connect(Options),

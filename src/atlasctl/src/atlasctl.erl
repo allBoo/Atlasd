@@ -33,6 +33,7 @@
   connect/2,
   forget/2,
   workers/2,
+  groups/2,
   monitors/2,
   get_runtime/2,
 
@@ -282,6 +283,20 @@ forget(Options, Args) ->
 
   ok.
 
+
+groups(_Options, []) ->
+  io:format("Available options are: list, restart, stop~n");
+groups(Options, Args) ->
+  [Cmd | CmdArgs] = Args,
+  case list_to_atom(Cmd) of
+    list -> groups:list(Options, CmdArgs);
+    restart -> groups:restart(Options, CmdArgs);
+    stop  -> groups:stop(Options, CmdArgs);
+
+    E ->
+      util:err_msg("Unknown groups command ~p", [E])
+  end,
+  ok.
 
 workers(_Options, []) ->
   io:format("Available options are: list, log, config, export, import, restart, stop~n");

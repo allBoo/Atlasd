@@ -92,10 +92,7 @@ in_group(Group) when is_list(Group) ->
   in_group(list_to_atom(Group));
 
 in_group(Group) when is_atom(Group) ->
-  case get_group() of
-    X when X =:= Group -> true;
-    _ -> false
-  end.
+  get_group() =:= Group.
 
 %% start worker
 start_worker(Worker) when is_record(Worker, worker); is_atom(Worker); is_list(Worker) ->
