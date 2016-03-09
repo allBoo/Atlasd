@@ -701,11 +701,10 @@ run_workers(Count, WorkerCfg, Instances, Nodes, Workers) ->
     true ->
       ?WARN("Can not find proper nodes for worker ~p, looking for low priority workers", [WorkerCfg#worker.name]),
       case get_node_for_worker(Nodes, WorkerCfg, Workers, Count) of
-        [{Node, Instances} | _Tail] ->
+        [{_Node, Instances} | _Tail] ->
           lists:foreach(fun(W) ->
                             do_stop_worker(W)
-                        end, Instances),
-          run_worker_at(WorkerCfg, Count, [Node]);
+                        end, Instances);
         _ ->
           error
       end
