@@ -280,6 +280,8 @@ handle_cast({set_monitors, Monitors}, State) when State#state.role == master ->
   {noreply, State};
 
 
+
+
 %% start workers on all nodes
 handle_cast(start_workers, State) when State#state.role == master ->
   Config = lists:map(fun(Worker) -> Worker#worker{enabled = true} end, State#state.worker_config),
@@ -475,6 +477,18 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+start_workers_sort(WorkersCfg, Workers) ->
+  lists:sort(fun(A, B) ->
+              if
+                A#worker.priority == B#worker.priority ->
+                    A_length = length([{_Node, _Pid, Name} || {_Node, _Pid, Name} <- Workers, Name == A#worker.name]),
+                    B_length = length([{_Node, _Pid, Name} || {_Node, _Pid, Name} <- Workers, Name == B#worker.name]),
+                    A_length < B_length;
+                true ->
+                    A#worker.priority > B#worker.priority
+              end
+             end, WorkersCfg).
+
 try_become_master(State) ->
   case global:register_name(?MODULE, self(), fun resolve_master/3) of
     yes ->
@@ -610,7 +624,7 @@ do_rebalance(State) ->
   ensure_all_known(State#state.worker_config, State#state.workers),
   %% ensure all workers are runing
   ?DBG("Ensure runing", []),
-  ensure_runing(State#state.worker_config, State#state.workers, State#state.worker_nodes),
+  ensure_runing(start_workers_sort(State#state.worker_config, State#state.workers), State#state.workers, State#state.worker_nodes),
   State#state{rebalanced = os:timestamp()}.
 
 
@@ -692,7 +706,6 @@ run_workers(Count, WorkerCfg, Instances, Nodes) ->
 %% run number of new workers
 run_workers(Count, WorkerCfg, Instances, Nodes, Workers) ->
   AvailableNodes = master_utils:filter_nodes(WorkerCfg, Instances, Nodes),
-  ?DBG("get_node_for_worker ~w", [get_node_for_worker(Nodes, WorkerCfg, Workers, Count)]),
   if
     length(AvailableNodes) > 0 ->
       ?DBG("Run ~p new workers ~p on ~p", [Count, WorkerCfg#worker.name, AvailableNodes]),
