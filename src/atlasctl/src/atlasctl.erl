@@ -291,6 +291,7 @@ groups(Options, Args) ->
     list_nodes -> groups:list(Options, CmdArgs, nodes);
     restart -> groups:restart(Options, CmdArgs);
     stop  -> groups:stop(Options, CmdArgs);
+    start  -> groups:start(Options, CmdArgs);
     create_for_workers  -> groups:create(Options, CmdArgs, workers);
     create_for_nodes  -> groups:create(Options, CmdArgs, nodes);
     remove_workers_from_group  -> groups:modify(Options, CmdArgs, remove, workers);

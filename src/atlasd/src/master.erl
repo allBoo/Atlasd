@@ -359,6 +359,15 @@ handle_cast({start_workers, Workers}, State) when State#state.role == master ->
                      end, State#state.worker_config),
   {noreply, rebalance_after(State#state{worker_config = Config})};
 
+handle_cast({start_group_workers, Group}, State) when State#state.role == master ->
+  Config = lists:map(fun(Worker) ->
+              case lists:member(Group, Worker#worker.groups) of
+                true -> Worker#worker{enabled = true};
+                _ -> Worker
+              end
+            end, State#state.worker_config),
+  {noreply, rebalance_after(State#state{worker_config = Config})};
+
 
 %% stop workers on all nodes
 handle_cast(stop_workers, State) when State#state.role == master ->

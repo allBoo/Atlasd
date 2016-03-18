@@ -28,6 +28,7 @@
   start_worker/1,
   start_workers/0,
   start_workers/1,
+  start_group_workers/1,
   stop_worker/1,
   stop_workers/0,
   stop_workers/1,
@@ -97,6 +98,9 @@ start_workers() ->
 
 start_workers(Workers) ->
   gen_server:cast(?SERVER, {start_workers, Workers}).
+
+start_group_workers(Group) ->
+  gen_server:cast(?SERVER, {start_group_workers, Group}).
 
 %% stop worker
 stop_worker(WorkerPid) when is_pid(WorkerPid) ->
@@ -289,7 +293,7 @@ handle_call(get_workers_config, _From, State) ->
 handle_call({get_group_workers, Group}, _From, State) when is_pid(State#state.master) ->
  % {reply, workers_sup:get_group_workers(Group), State};
   {reply, gen_server:call(State#state.master, {get_group_workers, Group}), State};
-handle_call({get_group_workers, Group}, _From, State) ->
+handle_call({get_group_workers, _Group}, _From, State) ->
   {reply, {error, "master node is not started"}, State};
 
 
@@ -393,6 +397,11 @@ handle_cast({start_workers, Workers}, State) when is_pid(State#state.master) ->
   WorkersList = lists:map(fun(El) -> if is_list(El) -> list_to_atom(El); true -> El end end, Workers),
   ?LOG("Try to start workers ~p", [WorkersList]),
   gen_server:cast(State#state.master, {start_workers, WorkersList}),
+  {noreply, State};
+
+handle_cast({start_group_workers, Group}, State) when is_pid(State#state.master) ->
+  ?LOG("Try to start workers in group ~p", [Group]),
+  gen_server:cast(State#state.master, {start_group_workers, Group}),
   {noreply, State};
 
 %% stop worker

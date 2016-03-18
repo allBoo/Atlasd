@@ -14,6 +14,7 @@
   list/3,
   restart/2,
   stop/2,
+  start/2,
   modify/4,
   create/3
 ]).
@@ -100,4 +101,18 @@ stop(Options, Args) ->
   Node = atlasctl:connect(Options),
   GroupWorkers = get_group_workers(Options, Group),
   Response = util:rpc_call(Node, stop_workers, [GroupWorkers]),
+  io:format("~p~n", [Response]).
+
+
+start(Options, []) ->
+  Node = atlasctl:connect(Options),
+  io:format("Start all workers for all groups ~n", []),
+  Response = util:rpc_call(Node, start_group_workers, [all]),
+  io:format("~p~n", [Response]);
+
+start(Options, Args) ->
+  [Group | _] = Args,
+  Node = atlasctl:connect(Options),
+  io:format("Start workers in group ~p~n", [Group]),
+  Response = util:rpc_call(Node, start_group_workers, [Group]),
   io:format("~p~n", [Response]).
