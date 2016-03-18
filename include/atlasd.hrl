@@ -58,7 +58,7 @@
   procs    = #worker_procs{},
   monitor  = []               :: [#worker_monitor{}],
   enabled  = true             :: boolean(),
-  group    = none             :: none | atom()
+  groups   = []               :: list()
 }).
 
 -record(rabbitmq_monitor_task, {

@@ -173,9 +173,10 @@ create_workers_spec(Data) ->
 
 create_workers_spec([], Acc) -> Acc;
 create_workers_spec([Item | Tail], Acc) ->
+  WorkerName = binary_to_atom(maps:get(<<"name">>, Item), utf8),
   Worker = #worker{
-    group     = binary_to_atom(maps:get(<<"group">>, Item, <<"none">>), utf8),
-    name     = binary_to_atom(maps:get(<<"name">>, Item), utf8),
+    groups   = [all, WorkerName] ++ [binary_to_atom(X, utf8) || X <- maps:get(<<"groups">>, Item)],
+    name     = WorkerName,
     command  = binary_to_list(maps:get(<<"command">>, Item)),
     nodes    = format_nodes(maps:get(<<"nodes">>, Item, any)),
     enabled  = format_boolean(maps:get(<<"enabled">>, Item, true)),

@@ -16,7 +16,9 @@
 -export([
   start_link/1,
   get_name/1,
-  get_group/1,
+  get_groups/1,
+  modify_groups/3,
+  update_groups/2,
   get_proc_pid/1,
   get_config/1,
   get_log/2,
@@ -61,17 +63,23 @@
 start_link(Worker) when is_record(Worker, worker) ->
   gen_server:start_link(?MODULE, [Worker], []).
 
-
 get_name(WorkerRef) when is_pid(WorkerRef) ->
   gen_server:call(WorkerRef, get_name).
 
-get_group(WorkerRef) when is_pid(WorkerRef) ->
-  gen_server:call(WorkerRef, get_group).
+get_groups(WorkerRef) when is_pid(WorkerRef) ->
+  gen_server:call(WorkerRef, get_groups).
 
+modify_groups(WorkerRef, Group, Action) when is_list(Group) ->
+  modify_groups(WorkerRef, list_to_atom(Group), Action);
+
+modify_groups(WorkerRef, Group, Action) when is_pid(WorkerRef) ->
+  gen_server:call(WorkerRef, {modify_groups, Group, Action}).
+
+update_groups(WorkerRef, Groups) when is_pid(WorkerRef) ->
+  gen_server:call(WorkerRef, {update_groups, Groups}).
 
 get_proc_pid(WorkerRef) when is_pid(WorkerRef) ->
   gen_server:call(WorkerRef, get_proc_pid).
-
 
 get_config(WorkerRef) when is_pid(WorkerRef) ->
   gen_server:call(WorkerRef, get_config).
@@ -140,8 +148,28 @@ init([Worker]) when is_record(Worker, worker) ->
 handle_call(get_name, _From, State) ->
   {reply, (State#state.config)#worker.name, State};
 
-handle_call(get_group, _From, State) ->
-  {reply, (State#state.config)#worker.group, State};
+handle_call(get_groups, _From, State) ->
+  {reply, (State#state.config)#worker.groups, State};
+
+
+
+handle_call({modify_groups, Group, Action}, _From, State) ->
+  Worker = case Action of
+    add ->
+      (State#state.config)#worker{groups = lists:usort(lists:merge([Group], (State#state.config)#worker.groups))};
+    remove ->
+      (State#state.config)#worker{groups = lists:delete(Group, (State#state.config)#worker.groups)};
+    _ ->
+      ?DBG("Bad action on group ~p" ,[Action]), (State#state.config)
+  end,
+  ?DBG("Modify worker groups ~p ~p ~p ~p", [Action, Group, (State#state.config)#worker.name, Worker]),
+  {reply, (State#state.config)#worker.groups, State#state{config = Worker}};
+
+
+handle_call({update_groups, Groups}, _From, State) ->
+  Worker = (State#state.config)#worker{groups = Groups},
+  ?DBG("Modify worker groups ~p ~p ~p ~p", [Groups, (State#state.config)#worker.name, Worker]),
+  {reply, (State#state.config)#worker.groups, State#state{config = Worker}};
 
 handle_call(get_proc_pid, _From, State) ->
   {reply, State#state.pid, State};

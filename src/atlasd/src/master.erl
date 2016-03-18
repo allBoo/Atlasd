@@ -23,7 +23,8 @@
   get_group_workers/1,
   whereis_master/0,
   get_worker_instances/1,
-  get_monitors/0
+  get_monitors/0,
+  modify_groups/3
 ]).
 
 %% gen_server callbacks
@@ -84,6 +85,9 @@ get_workers(Node) ->
 
 get_group_workers(Group) ->
   gen_server:call(?SERVER, {get_group_workers, Group}).
+
+modify_groups(Group, Nodes, Action) ->
+  gen_server:call(?SERVER, {modify_groups, Group, Nodes, Action}).
 
 get_worker_instances(Worker) when is_list(Worker) ->
   get_worker_instances(list_to_atom(Worker));
@@ -152,12 +156,14 @@ init([]) ->
 handle_call({get_runtime, Request}, _From, State) when State#state.role == master ->
   {reply, gen_server:call(runtime_config, Request), State};
 
+handle_call(get_workers_config, _From, State) when State#state.role == master ->
+  {reply, State#state.worker_config, State};
 
 handle_call(get_nodes, _From, State) when State#state.role == master ->
   Nodes = lists:map(fun(Node) ->
     {Node, #{
       name        => Node,
-      group       => atlasd:get_group(),
+      groups       => atlasd:get_groups(),
       master_node => Node =:= node(),
       is_worker   => lists:member(Node, State#state.worker_nodes),
       is_master   => lists:member(Node, State#state.master_nodes),
@@ -175,8 +181,57 @@ handle_call({get_workers, Node}, _From, State) ->
   {reply, {ok, Workers}, State};
 
 handle_call({get_group_workers, Group}, _From, State) ->
-  Workers = cluster:poll({get_group_workers, Group}),
+  Workers = lists:filter(fun({_, _, Name}) ->
+                            lists:member(Group, lists:flatten([Z#worker.groups || Z <- State#state.worker_config, Z#worker.name == Name]))
+                        end, State#state.workers),
   {reply, {ok, Workers}, State};
+
+handle_call({get_group_nodes, Group}, _From, State) ->
+  Nodes = lists:filter(fun({Groups, _}) ->
+                            lists:member(Group, Groups)
+                         end, State#state.group_nodes),
+  {reply, {ok, [N || {_, N} <- Nodes]}, State};
+
+
+handle_call({modify_groups, Nodes, Group, Action, nodes}, _From, State) ->
+  GroupNodes = lists:map(fun({Groups, Node}) ->
+                            NewGroups = case lists:member(Node, Nodes) of
+                                                 true ->
+                                                   case Action of
+                                                     add ->
+                                                       lists:usort(lists:merge([Group], Groups));
+                                                     remove ->
+                                                       lists:delete(Group, Groups);
+                                                     _ ->
+                                                       ?DBG("Bad action on groups"), Groups
+                                                   end;
+                                               _ ->
+                                                 Groups
+                                             end,
+                            {NewGroups, Node}
+                         end, State#state.group_nodes),
+  ?DBG("Modify nodes groups ~p ~p ~p ~p", [Action, Group, Nodes, GroupNodes]),
+  {reply, ok, State#state{group_nodes = GroupNodes}};
+
+
+handle_call({modify_groups, Workers, Group, Action, workers}, _From, State) ->
+  NewWorkers = lists:map(fun(W) ->
+                            case lists:member(W#worker.name, Workers) of
+                              true ->
+                                NewGroups = case Action of
+                                  add ->
+                                    lists:usort(lists:merge([Group], W#worker.groups));
+                                  remove ->
+                                    lists:delete(Group, W#worker.groups)
+                                end,
+                                workers_sup:update_groups(NewGroups, W#worker.name),
+                                W#worker{groups = NewGroups};
+                              _ ->
+                                W
+                            end
+
+                        end, State#state.worker_config),
+  {reply, ok, State#state{worker_config = NewWorkers}};
 
 handle_call(get_monitors, _From, State) ->
   {reply, master_monitors_sup:get_running_monitors(), State};
@@ -553,7 +608,7 @@ cluster_handshake(State) ->
   ?DBG("Runing workers are ~p", [RuningWorkers]),
 
   GroupNodes = lists:map(fun(X) ->
-                            {cluster:poll(X, get_group), X}
+                            {cluster:poll(X, get_groups), X}
                          end, lists:usort(WorkerNodes ++ MasterNodes)),
   ?DBG("GroupNodes  are ~p", [GroupNodes]),
   State#state{worker_nodes = WorkerNodes, workers = RuningWorkers, master_nodes = MasterNodes, group_nodes = GroupNodes}.
@@ -562,7 +617,6 @@ cluster_handshake(State) ->
 node_handshake(Node, State) ->
   ?LOG("Start handshake with node ~p", [Node]),
   cluster:notify(Node, {master, self()}),
-
 
   case cluster:poll(Node, is_master) of
     true ->
@@ -588,7 +642,7 @@ node_handshake(Node, State) ->
       RuningWorkers = State#state.workers
   end,
 
-  GroupNodes = State#state.group_nodes ++ {cluster:poll(Node, get_group), Node},
+  GroupNodes = State#state.group_nodes ++ {cluster:poll(Node, get_groups), Node},
 
   State#state{master_nodes = MasterNodes, worker_nodes = WorkerNodes, workers = RuningWorkers, group_nodes = lists:usort(GroupNodes)}.
 
@@ -650,7 +704,6 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker
 
 ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker.enabled == true ->
   ProcsConfig = WorkerCfg#worker.procs,
-
   %% static instances count
   [MinInstances, MaxInstances] = if
                                    ProcsConfig#worker_procs.each_node =/= false ->
@@ -672,6 +725,18 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker
                                  end,
 
   Instances = get_worker_instances_sorted_by_cpu(WorkerCfg#worker.name, Workers),
+
+  lists:foreach(fun(Instance = {InstanceNodeName, _, _}) ->
+                  lists:foreach(fun({Groups, NodeName}) when NodeName == InstanceNodeName ->
+                        case length([G || G <- Groups, lists:member(G, WorkerCfg#worker.groups)]) of
+                          X when X == 0 ->
+                            do_stop_worker(Instance);
+                          _ ->
+                            ok
+                        end
+                    end, Nodes)
+                end, Instances),
+
   InstancesCount = length(Instances),
   if
     (InstancesCount >= MinInstances) and (InstancesCount =< MaxInstances) -> ok;
@@ -679,12 +744,11 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker
     InstancesCount < MinInstances ->
       NewCount = MinInstances - InstancesCount,
       ?DBG("Count instances of ~p is lower than ~p", [WorkerCfg#worker.name, MinInstances]),
-      GroupNodes = [Node || {Group, Node} <- Nodes, Group =:= WorkerCfg#worker.group],
-      case length(GroupNodes) of
-        X when X == 0 -> ?DBG("No nodes available in group ~p ~p", [WorkerCfg#worker.group, Nodes]);
-        _ -> run_workers(NewCount, WorkerCfg, Instances, GroupNodes, Workers)
+      GroupsNodes = [Node || {Groups, Node} <- Nodes, length([I || I <- Groups, lists:member(I, WorkerCfg#worker.groups)]) > 0],
+      case length(GroupsNodes) of
+        X when X == 0 -> ?DBG("No nodes available in group ~p ~p", [WorkerCfg#worker.groups, Nodes]);
+        _ -> run_workers(NewCount, WorkerCfg, Instances, GroupsNodes, Workers)
       end;
-
 
     InstancesCount > MaxInstances ->
       KillCount = InstancesCount - MaxInstances,

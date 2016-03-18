@@ -18,7 +18,9 @@
   start_worker/1,
   stop_worker/1,
   get_group_workers/1,
-  get_workers/0
+  get_workers/0,
+  modify_group/3,
+  update_groups/2
 ]).
 
 %% Supervisor callbacks
@@ -66,13 +68,36 @@ stop_worker(_) ->
 
 get_group_workers(Group) ->
   lists:filtermap(fun({_, WorkerSup, _, _}) ->
-      case worker_sup:get_worker_group(WorkerSup) of
-        X when X =:= Group ->
+      WorkerGroups = worker_sup:get_worker_groups(WorkerSup),
+      case lists:member(Group, WorkerGroups) of
+        true ->
           {true, worker_sup:get_worker_name(WorkerSup)};
         _ ->
           false
       end
     end, supervisor:which_children(?SERVER)).
+
+update_groups(Groups, WorkerName) ->
+  lists:foreach(fun({_, WorkerSup, _, _}) ->
+                  {_, WorkerSupName, _} = worker_sup:get_worker_name(WorkerSup),
+                  case WorkerName == WorkerSupName of
+                    true ->
+                      worker_sup:update_groups(WorkerSup, Groups);
+                    _ ->
+                      false
+                  end
+                end, supervisor:which_children(?SERVER)).
+
+modify_group(Group, WorkerName, Action) ->
+                lists:foreach(fun({_, WorkerSup, _, _}) ->
+                  {_, WorkerSupName, _} = worker_sup:get_worker_name(WorkerSup),
+                  case WorkerName == WorkerSupName of
+                    true ->
+                      worker_sup:modify_groups(WorkerSup, Group, Action);
+                    _ ->
+                      false
+                  end
+                end, supervisor:which_children(?SERVER)).
 
 %%
 get_workers() ->

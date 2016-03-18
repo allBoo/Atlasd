@@ -17,10 +17,12 @@
   start_link/0,
   is_worker/0,
   is_master/0,
-  get_group/0,
-  in_group/1,
+  get_groups/0,
   get_workers/1,
+  get_workers_config/0,
   get_group_workers/1,
+  get_group_nodes/1,
+  modify_groups/4,
   worker_started/1,
   worker_stoped/1,
   start_worker/1,
@@ -83,16 +85,8 @@ is_worker() ->
 is_master() ->
   config:get("node.master", false, boolean).
 
-get_group() ->
-  config:get("node.group", none, atom).
-
-
-
-in_group(Group) when is_list(Group) ->
-  in_group(list_to_atom(Group));
-
-in_group(Group) when is_atom(Group) ->
-  get_group() =:= Group.
+get_groups() ->
+  [all1, node()] ++ [list_to_atom(X) || X <- string:tokens(config:get("node.groups", ""), ",")].
 
 %% start worker
 start_worker(Worker) when is_record(Worker, worker); is_atom(Worker); is_list(Worker) ->
@@ -161,6 +155,27 @@ get_workers(Node) when is_list(Node) ->
   get_workers(list_to_atom(Node));
 get_workers(Node) ->
   gen_server:call(?SERVER, {get_workers, Node}).
+
+
+%% returns list of running workers
+get_workers_config() ->
+  gen_server:call(?SERVER, get_workers_config).
+
+
+modify_groups(Group, Names, Action, Type) ->
+  AtomNames = lists:map(fun(Name) -> if
+                                       is_list(Name) ->
+                                         list_to_atom(Name);
+                                       true ->
+                                         Name
+                                     end
+                        end, Names),
+  gen_server:call(?SERVER, {modify_groups, list_to_atom(Group), AtomNames, Action, Type}),
+  gen_server:cast(?SERVER, rebalance).
+
+get_group_nodes(Group) ->
+  gen_server:call(?SERVER, {get_group_nodes, Group}).
+
 
 get_group_workers(Group) ->
   gen_server:call(?SERVER, {get_group_workers, Group}).
@@ -249,8 +264,8 @@ handle_call(is_worker, _From, State) ->
 handle_call(is_master, _From, State) ->
   {reply, is_master(), State};
 
-handle_call(get_group, _From, State) ->
-  {reply, get_group(), State};
+handle_call(get_groups, _From, State) ->
+  {reply, get_groups(), State};
 
 
 handle_call(get_workers, _From, State) ->
@@ -265,14 +280,28 @@ handle_call({get_workers, _Node}, _From, State) ->
   {reply, {error, "master node is not started"}, State};
 
 
-handle_call({get_group_workers, Group}, _From, State) ->
-  case
-    in_group(Group) and is_worker() of true ->
-      {reply, workers_sup:get_group_workers(Group), State};
-    _ ->
-      {reply, ignore, State}
-  end;
+handle_call(get_workers_config, _From, State) when is_pid(State#state.master) ->
+  {reply, gen_server:call(State#state.master, get_workers_config), State};
+handle_call(get_workers_config, _From, State) ->
+  {reply, {error, "master node is not started"}, State};
 
+
+handle_call({get_group_workers, Group}, _From, State) when is_pid(State#state.master) ->
+ % {reply, workers_sup:get_group_workers(Group), State};
+  {reply, gen_server:call(State#state.master, {get_group_workers, Group}), State};
+handle_call({get_group_workers, Group}, _From, State) ->
+  {reply, {error, "master node is not started"}, State};
+
+
+handle_call({get_group_nodes, Group}, _From, State) when is_pid(State#state.master) ->
+  {reply, gen_server:call(State#state.master, {get_group_nodes, Group}), State};
+handle_call({get_group_nodes, _Group}, _From, State) ->
+  {reply, {error, "master node is not started"}, State};
+
+handle_call({modify_groups, Group, Names, Action, Type}, _From, State) when is_pid(State#state.master)->
+  {reply, gen_server:call(State#state.master, {modify_groups, Names, Group, Action, Type}), State};
+handle_call({modify_groups, _Group, _Nodes, _Action, _Type}, _From, State) ->
+  {reply, {error, "master node is not started"}, State};
 
 handle_call(get_monitors, _From, State) when is_pid(State#state.master) ->
   {reply, gen_server:call(State#state.master, get_monitors), State};
@@ -343,9 +372,15 @@ handle_cast({master, Pid}, State) ->
   {noreply, State#state{master = Pid}};
 
 
+%% rebalance
+handle_cast(rebalance, State) when is_pid(State#state.master) ->
+  ?LOG("Try to rebalance", []),
+  gen_server:cast(State#state.master, rebalance),
+  {noreply, State};
+
 %% start worker
 handle_cast({start_worker, Worker}, State) ->
-  ?LOG("Try to start worker ~p", [Worker]),
+  ?LOG("Try to rebalance worker ~p", [Worker]),
   do_start_worker(Worker),
   {noreply, State};
 

@@ -280,19 +280,23 @@ forget(Options, Args) ->
     _ ->
       util:err_msg("You should pass the node connect to~n")
   end,
-
   ok.
-
 
 groups(_Options, []) ->
   io:format("Available options are: list, restart, stop~n");
 groups(Options, Args) ->
   [Cmd | CmdArgs] = Args,
   case list_to_atom(Cmd) of
-    list -> groups:list(Options, CmdArgs);
+    list_workers -> groups:list(Options, CmdArgs, workers);
+    list_nodes -> groups:list(Options, CmdArgs, nodes);
     restart -> groups:restart(Options, CmdArgs);
     stop  -> groups:stop(Options, CmdArgs);
-
+    create_for_workers  -> groups:create(Options, CmdArgs, workers);
+    create_for_nodes  -> groups:create(Options, CmdArgs, nodes);
+    remove_workers_from_group  -> groups:modify(Options, CmdArgs, remove, workers);
+    add_workers_to_group  -> groups:modify(Options, CmdArgs, add, workers);
+    remove_nodes_from_group  -> groups:modify(Options, CmdArgs, remove, nodes);
+    add_nodes_to_group  -> groups:modify(Options, CmdArgs, add, nodes);
     E ->
       util:err_msg("Unknown groups command ~p", [E])
   end,

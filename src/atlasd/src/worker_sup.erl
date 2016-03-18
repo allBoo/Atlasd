@@ -17,7 +17,9 @@
   start_link/1,
   get_worker/1,
   get_worker_name/1,
-  get_worker_group/1
+  get_worker_groups/1,
+  modify_groups/3,
+  update_groups/2
 ]).
 
 %% Supervisor callbacks
@@ -74,17 +76,30 @@ get_worker(SupRef) ->
 get_worker_name(SupRef) ->
   case get_worker(SupRef) of
     Pid when is_pid(Pid) ->
-      {Pid, worker:get_name(Pid), worker:get_group(Pid)};
+      {Pid, worker:get_name(Pid), worker:get_groups(Pid)};
     _ -> false
   end.
 
-get_worker_group(SupRef) ->
+get_worker_groups(SupRef) ->
   case get_worker(SupRef) of
     Pid when is_pid(Pid) ->
-      worker:get_group(Pid);
+      worker:get_groups(Pid);
     _ -> false
   end.
 
+modify_groups(SupRef, Group, Action) ->
+  case get_worker(SupRef) of
+    Pid when is_pid(Pid) ->
+      worker:modify_groups(Pid, Group, Action);
+    _ -> false
+  end.
+
+update_groups(SupRef, Groups) ->
+  case get_worker(SupRef) of
+    Pid when is_pid(Pid) ->
+      worker:update_groups(Pid, Groups);
+    _ -> false
+  end.
 %%%===================================================================
 %%% Supervisor callbacks
 %%%===================================================================
