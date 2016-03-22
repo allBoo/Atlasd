@@ -87,7 +87,7 @@ is_master() ->
   config:get("node.master", false, boolean).
 
 get_groups() ->
-  [all1, node()] ++ [list_to_atom(X) || X <- string:tokens(config:get("node.groups", ""), ",")].
+  [all, node()] ++ [list_to_atom(X) || X <- string:tokens(config:get("node.groups", ""), ",")].
 
 %% start worker
 start_worker(Worker) when is_record(Worker, worker); is_atom(Worker); is_list(Worker) ->
