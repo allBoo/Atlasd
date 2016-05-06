@@ -110,7 +110,13 @@ init([]) ->
   application:set_env(kernel, inet_dist_listen_min, Port),
 
   Node = list_to_atom(config:get("cluster.name", "atlasd") ++ "@" ++ config:get("inet.host", "127.0.0.1")),
-  {ok, _} = net_kernel:start([Node, longnames]),
+  {ok, _} = if
+              node() == Node -> {ok, ok};
+              node() == 'nonode@nohost' -> net_kernel:start([Node, longnames]);
+              true ->
+                net_kernel:stop(),
+                net_kernel:start([Node, longnames])
+            end,
 
   Cookie = case config:get("cluster.cookie") of
     undefined ->

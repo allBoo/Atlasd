@@ -33,10 +33,12 @@
 
 -record(state, {
   os_state = #os_state{},
-  mem_watermark
+  mem_watermark,
+  emerg_mem_watermark
 }).
 
 -define(DEFAULT_MEM_WATERMARK, 80).
+-define(DEFAULT_EMERG_MEM_WATERMARK, 98).
 
 
 %%%===================================================================
@@ -76,7 +78,10 @@ mode() -> node.
   {ok, StateName :: atom(), StateData :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([]) ->
-  State = #state{mem_watermark = config:get('os.mem_watermark', ?DEFAULT_MEM_WATERMARK, integer)},
+  State = #state{
+    mem_watermark = config:get('os.mem_watermark', ?DEFAULT_MEM_WATERMARK, integer),
+    emerg_mem_watermark = config:get('os.emerg_mem_watermark', ?DEFAULT_EMERG_MEM_WATERMARK, integer)
+  },
   ?DBG("Started os monitor ~w", [State]),
   {ok, monitor, State, 1000}.
 
@@ -103,17 +108,19 @@ monitor(_Event, State) ->
     per_cpu = lists:map(fun(El) -> element(2, El) end, cpu_sup:util([per_cpu]))
   },
 
+  UsedMemoryPercents = Memory_info#memory_info.allocated_memory/
+    ((Memory_info#memory_info.allocated_memory + Memory_info#memory_info.free_memory)/100),
+
   Os_state = #os_state{
     memory_info = Memory_info,
     cpu_info = Cpu_info,
-    overloaded = State#state.mem_watermark < Memory_info#memory_info.allocated_memory/
-      ((Memory_info#memory_info.allocated_memory + Memory_info#memory_info.free_memory)/100)
+    overloaded = State#state.mem_watermark < UsedMemoryPercents
   },
 
   if
-    Memory_info#memory_info.free_memory == 0;
+    State#state.emerg_mem_watermark < UsedMemoryPercents;
     Cpu_info#cpu_info.load_average > length(Cpu_info#cpu_info.per_cpu)*4 ->
-      ?DBG("EMERGENCY"),
+      ?WARN("Node is highly overloaded. Expecting to kill some workers"),
       atlasd:notify_state(emergency_state, []);
     true -> false
    end,

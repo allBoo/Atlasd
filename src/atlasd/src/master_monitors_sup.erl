@@ -68,12 +68,10 @@ init([]) ->
   {ok, { {one_for_one, 5, 10}, Monitors} }.
 
 get_running_monitors() ->
-  lists:map(fun({MonitorName, Pid, _, [MonitorType]}) ->
-              case MonitorType of
-                monitor_rabbitmq ->
-                  {MonitorName, Pid, MonitorType, gen_fsm:sync_send_all_state_event(Pid, get_data)}
-              end
-            end,
+  lists:map(
+    fun({MonitorName, Pid, _, [MonitorType]}) ->
+      {MonitorName, Pid, MonitorType, gen_fsm:sync_send_all_state_event(Pid, get_data)}
+    end,
     supervisor:which_children({global, ?MODULE})).
 
 %%%===================================================================
@@ -85,7 +83,7 @@ get_master_monitors() ->
   lists:flatmap(fun(Monitor) ->
     case apply(Monitor#monitor.name, mode, []) of
       master ->
-        apply(Monitor#monitor.name, child_specs, [Monitor#monitor.config]);
+        apply(Monitor#monitor.name, children_specs, [Monitor#monitor.config]);
       _ -> []
     end
   end, Monitors).

@@ -9,61 +9,44 @@
 -module(rabbitmq_api).
 -author("user").
 -include_lib("atlasd.hrl").
+-include_lib("rabbitmq_monitor.hrl").
 
 %% API
 -export([
   get_all_queues/1,
   request/3,
   auth_header/2,
-  get_queue_by_name/1,
+  get_queue_by_name/2,
   get_queues_by_vhost/1,
   get_data/3,
   format_queue/1]).
 
 
--record(queue, {name,
-  messages,
-  consumers,
-  publish_rate,
-  ack_rate}).
-
--record(state, {
-  mode = api :: api | native,
-  host = "127.0.0.1",
-  port = "15672",
-  user = "guest",
-  pass = "guest",
-  vhost = "%2f",
-  minutes_to_add_consumers,
-  exchange,
-  queue,
-  task,
-  data,
-  real_consumers_count
-}).
-
-
-get_queue_by_name(State) ->
-  Data = get_data("/queues/" ++ State#state.vhost ++ "/" ++ State#state.queue, get, State),
+get_queue_by_name(Monitor, Queue) ->
+  Data = get_data("/queues/" ++ Monitor#rabbitmq_monitor.vhost ++ "/" ++ Queue, get, Monitor),
   if
-    Data == [] -> false;
+    Data == [] -> maps:new();
     true -> %?DBG("Request success"),
-      format_queue(Data)
+      Queue = format_queue(Data),
+      #{Queue#rabbitmq_queue.name => Queue}
   end.
 
-get_queues_by_vhost(State) ->
-  Data = get_data("/queues/" ++ State#state.vhost, get, State),
-  make_queues_list(Data).
+get_queues_by_vhost(Monitor) ->
+  Data = get_data("/queues/" ++ Monitor#rabbitmq_monitor.vhost, get, Monitor),
+  make_queues_map(Data).
 
-get_all_queues(State) ->
-  Data = get_data("/queues", get, State),
-  make_queues_list(Data).
+get_all_queues(Monitor) ->
+  Data = get_data("/queues", get, Monitor),
+  make_queues_map(Data).
 
-make_queues_list([Q|T]) ->
-  [format_queue(Q) | make_queues_list(T)];
 
-make_queues_list([]) ->
-  [].
+make_queues_map(Data) -> make_queues_map(Data, maps:new()).
+
+make_queues_map([], Result) -> Result;
+make_queues_map([Q | T], Result) ->
+  Queue = format_queue(Q),
+  make_queues_map(T, maps:put(Queue#rabbitmq_queue.name, Queue, Result)).
+
 
 format_queue(Queue) ->
   Name = maps:get(<<"name">>, Queue),
@@ -79,7 +62,7 @@ format_queue(Queue) ->
              catch
                _:_ -> 0.0
              end,
-  #queue{
+  #rabbitmq_queue{
     name = binary_to_list(Name),
     messages = Messages,
     consumers = Consumers,
@@ -87,12 +70,12 @@ format_queue(Queue) ->
     ack_rate = Ack_rate
   }.
 
-get_data(Url, Method, State) ->
-  case request(Url, Method, State) of
+get_data(Url, Method, Monitor) ->
+  case request(Url, Method, Monitor) of
     {ok, 200, Data} ->
       jiffy:decode(Data, [return_maps]);
     Rslt ->
-      ?DBG("Request failed: ~p, ~p", [Rslt, State]),
+      ?DBG("Request failed: ~p, ~p", [Rslt, Monitor]),
       []
   end.
 
@@ -100,9 +83,9 @@ auth_header(User, Pass) ->
   Encoded = base64:encode_to_string(lists:append([User, ":", Pass])),
   {"Authorization", "Basic " ++ Encoded}.
 
-request(Url, Method, State) ->
-  URL = "http://" ++ State#state.host ++ ":" ++ State#state.port ++ "/api" ++ Url,
-  Headers = [auth_header(State#state.user, State#state.pass), {"Content-Type", "application/json"}],
+request(Url, Method, Monitor) ->
+  URL = "http://" ++ Monitor#rabbitmq_monitor.host ++ ":" ++ Monitor#rabbitmq_monitor.port ++ "/api" ++ Url,
+  Headers = [auth_header(Monitor#rabbitmq_monitor.user, Monitor#rabbitmq_monitor.pass), {"Content-Type", "application/json"}],
   {Result, { Status, _, Body}} = httpc:request(Method, {URL, Headers}, [], []),
   {_, Status_code, _} = Status,
   {Result, Status_code, Body}.

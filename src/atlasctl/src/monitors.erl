@@ -44,10 +44,10 @@ format(Config, map) ->
   lists:map(fun(El) ->
     MonitorRecord = MonitorPrinter(El),
     Record = maps:get(config, MonitorRecord, false),
-    FormattedRecord = if
-                        is_record(Record, rabbitmq_monitor) ->
-                          format_record(Record, rabbitmq_monitor)
-                      end,
+    FormattedRecord = %if
+                      %  is_record(Record, rabbitmq_monitor) ->
+                          format_record(Record, rabbitmq_monitor),
+                      %end,
     maps:put(config, FormattedRecord, MonitorRecord)
             end, Config);
 
@@ -55,12 +55,12 @@ format(Config, json) ->
   Map = format(Config, map),
   jiffy:encode(Map).
 
-format_record(Record, rabbitmq_monitor) ->
-  RabbitmqMonitorTaskPrinter = ?record_to_map(rabbitmq_monitor_task),
-  RabbitmqMonitorPrinter = ?record_to_map(rabbitmq_monitor),
-  RabbitmqMonitorPrinter(Record#rabbitmq_monitor{tasks = lists:map(fun(Task) ->
-    RabbitmqMonitorTaskPrinter(Task)
-                                                                   end, Record#rabbitmq_monitor.tasks)}).
+format_record(Record, rabbitmq_monitor) -> ok.
+  %RabbitmqMonitorTaskPrinter = ?record_to_map(rabbitmq_monitor_task),
+  %RabbitmqMonitorPrinter = ?record_to_map(rabbitmq_monitor),
+  %RabbitmqMonitorPrinter(Record#rabbitmq_monitor{tasks = lists:map(fun(Task) ->
+  %  RabbitmqMonitorTaskPrinter(Task)
+  %                                                                 end, Record#rabbitmq_monitor.tasks)}).
 
 import(_Options, []) ->
   util:err_msg("You must provide path to file or raw json");
@@ -75,45 +75,22 @@ import(Options, Args) ->
             end,
 
   Data = jiffy:decode(RawData, [return_maps]),
-  Monitors = create_monitors_spec(Data),
   Node = atlasctl:connect(Options),
+  Monitors = create_monitors_spec(Node, Data),
   ok = util:rpc_call(Node, set_monitors, [Monitors]).
 
 
-create_monitors_spec(Data) ->
-  create_monitors_spec(Data, []).
+create_monitors_spec(Node, Data) ->
+  create_monitors_spec(Node, Data, []).
 
-create_monitors_spec([], Acc) -> Acc;
-create_monitors_spec([Item | Tail], Acc) ->
+create_monitors_spec(_Node, [], Acc) -> Acc;
+create_monitors_spec(Node, [Item | Tail], Acc) ->
   Name = binary_to_atom(maps:get(<<"name">>, Item), utf8),
-  Config = case Name of
-             monitor_rabbitmq ->
-               map_to_record(maps:get(<<"config">>, Item), rabbitmq_monitor);
-             _ ->
-               false
-           end,
+  RawConfig = maps:get(<<"config">>, Item),
+  Config = util:rpc_call(Node, Name, decode_config, [RawConfig]),
 
   Monitor = #monitor{
     name = Name,
     config = Config
   },
-  [Monitor | create_monitors_spec(Tail, Acc)].
-
-map_to_record(Record, rabbitmq_monitor) ->
-  #rabbitmq_monitor{
-    mode = binary_to_atom(maps:get(<<"mode">>, Record, <<"api">>), utf8),
-    host = binary_to_list(maps:get(<<"host">>, Record)),
-    port = binary_to_list(maps:get(<<"port">>, Record, <<"15672">>)),
-    user = binary_to_list(maps:get(<<"user">>, Record, <<"guest">>)),
-    pass = binary_to_list(maps:get(<<"pass">>, Record, <<"guest">>)),
-    tasks = lists:map(fun(Task) -> map_to_record(Task, rabbitmq_monitor_task) end, maps:get(<<"tasks">>, Record))
-  };
-
-map_to_record(Record, rabbitmq_monitor_task) ->
-  #rabbitmq_monitor_task{
-    task = binary_to_list(maps:get(<<"task">>, Record)),
-    queue = binary_to_list(maps:get(<<"queue">>, Record)),
-    exchange = binary_to_atom(maps:get(<<"queue">>, Record, <<"parsley">>), utf8),
-    vhost = binary_to_list(maps:get(<<"vhost">>, Record, <<"%2f">>)),
-    minutes_to_add_consumers = binary_to_integer(maps:get(<<"minutes_to_add_consumers">>, Record, <<"1000">>))
-  }.
+  [Monitor | create_monitors_spec(Node, Tail, Acc)].

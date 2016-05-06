@@ -33,6 +33,10 @@
   increase_workers/1,
   decrease_workers/1,
   change_workers_count/2,
+  lock_worker/1,
+  unlock_worker/1,
+  lock_node/1,
+  unlock_node/1,
   notify_state/2,
   get_runtime/1,
   get_nodes/0,
@@ -127,6 +131,13 @@ change_workers_count(Worker, Count) when is_record(Worker, worker), is_integer(C
                                          is_list(Worker), is_integer(Count), Count >= 0 ->
   gen_server:cast(?SERVER, {change_workers_count, {Worker, Count}}).
 
+%% lock increasing workers count
+lock_worker(Worker) when is_record(Worker, worker); is_atom(Worker); is_list(Worker) ->
+  gen_server:cast(?SERVER, {lock_worker, Worker}).
+
+%% unlock increasing workers count
+unlock_worker(Worker) when is_record(Worker, worker); is_atom(Worker); is_list(Worker) ->
+  gen_server:cast(?SERVER, {unlock_worker, Worker}).
 
 %% workers must use this function to inform master about itself
 worker_started({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
@@ -134,6 +145,18 @@ worker_started({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
 
 worker_stoped({Pid, Name} = Worker) when is_pid(Pid), is_atom(Name) ->
   gen_server:cast(?SERVER, {worker_stoped, Worker}).
+
+%% lock increasing workers count on given node
+lock_node(Node) when is_list(Node) ->
+  lock_node(list_to_atom(Node));
+lock_node(Node) when is_atom(Node) ->
+  gen_server:cast(?SERVER, {lock_node, Node}).
+
+%% unlock increasing workers count on given node
+unlock_node(Node) when is_list(Node) ->
+  unlock_node(list_to_atom(Node));
+unlock_node(Node) when is_atom(Node) ->
+  gen_server:cast(?SERVER, {unlock_node, Node}).
 
 %% get runtime config variable from master node
 get_runtime(Request) ->
@@ -413,6 +436,29 @@ handle_cast({change_workers_count, {Worker, Count}}, State) ->
   {noreply, State};
 
 
+%% lock increasing workers count
+handle_cast({lock_worker, Worker}, State) ->
+  case resolve_worker(Worker) of
+    WorkerCnf when is_record(WorkerCnf, worker) ->
+      ?LOG("Lock increasing workers ~p count", [Worker]),
+      gen_server:cast(State#state.master, {lock_worker, WorkerCnf#worker.name});
+    _ ->
+      neok
+  end,
+  {noreply, State};
+
+%% unlock increasing workers count
+handle_cast({unlock_worker, Worker}, State) ->
+  case resolve_worker(Worker) of
+    WorkerCnf when is_record(WorkerCnf, worker) ->
+      ?LOG("Unlock increasing workers ~p count", [Worker]),
+      gen_server:cast(State#state.master, {unlock_worker, WorkerCnf#worker.name});
+    _ ->
+      neok
+  end,
+  {noreply, State};
+
+
 %% inform master about workers
 handle_cast({worker_started, {Pid, Name}}, State) when is_pid(State#state.master),
                                                        is_pid(Pid), is_atom(Name) ->
@@ -431,6 +477,19 @@ handle_cast({worker_stoped, {Pid, Name}}, State) when is_pid(State#state.master)
 handle_cast({worker_crashed, Pid}, State) when is_pid(State#state.master),
                                                is_pid(Pid) ->
   gen_server:cast(State#state.master, {worker_crashed, {node(), Pid}}),
+  {noreply, State};
+
+
+%% lock increasing workers count on given node
+handle_cast({lock_node, Node}, State) ->
+  ?LOG("Lock increasing workers on node ~p", [Node]),
+  gen_server:cast(State#state.master, {lock_node, Node}),
+  {noreply, State};
+
+%% unlock increasing workers count on given node
+handle_cast({unlock_node, Node}, State) ->
+  ?LOG("Unlock increasing workers on node ~p", [Node]),
+  gen_server:cast(State#state.master, {unlock_node, Node}),
   {noreply, State};
 
 
