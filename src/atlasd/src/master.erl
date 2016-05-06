@@ -691,7 +691,7 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes, Recommended, LockedNo
                                                  RecommendedInstances < ProcsConfig#worker_procs.max -> Min;
                                                  true -> ProcsConfig#worker_procs.max
                                                end,
-                                         [Min, Max];
+                                         [min(Min, Max), Max];
                                        _ -> [ProcsConfig#worker_procs.min, ProcsConfig#worker_procs.max]
                                      end
                                  end,

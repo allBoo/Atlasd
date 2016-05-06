@@ -181,7 +181,7 @@ create_workers_spec([Item | Tail], Acc) ->
     max_mem  = format_mem(maps:get(<<"max_mem">>, Item, infinity)),
     priority = format_integer(maps:get(<<"priority">>, Item, 0)),
     restart  = binary_to_atom(maps:get(<<"restart">>, Item, simple), utf8),
-    procs    = format_procs(maps:get(<<"procs">>, Item)),
+    procs    = format_procs(maps:get(<<"procs">>, Item, #{})),
     monitor  = maps:get(<<"monitor">>, Item)
   },
   [Worker | create_workers_spec(Tail, Acc)].
