@@ -44,7 +44,10 @@
   worker_config  = []        :: [#worker{}],                 %% base workers config
   worker_nodes   = []        :: [node()],                    %% list of worker nodes
   master_nodes   = []        :: [node()],                    %% list of master nodes
+  locked_nodes   = []        :: [node()],                    %% list of locked nodes
   workers        = []        :: [{node(), pid(), Name :: atom()}],    %% current runing workers
+  locked_workers = []        :: [atom()],                    %% list of locked workers
+  recommended    = #{}       :: #{},                         %% recommended count of workers
   rebalanced     = 0         :: integer(),
   rebalancer     = undefined :: timer:tref() | undefined,
   priority       = 0         :: integer()
@@ -119,7 +122,7 @@ init([]) ->
   NodePriority = config:get('node.priority', 0, integer),
   case whereis_master() of
     undefined ->
-      ?LOG("No master found. Wait for cluster connection finished", []),
+      ?LOG("No master found. Wait for cluster connection to be finished", []),
       {ok, #state{role = undefined, master = undefined, master_node = undefined, priority = NodePriority}};
 
     {Master, MasterNode} ->
@@ -234,9 +237,9 @@ handle_cast({worker_stoped, {Node, Pid, Name}}, State) when State#state.role == 
 %% change workers count
 handle_cast({change_workers_count, {WorkerName, Count}}, State) when State#state.role == master,
                                                                      is_atom(WorkerName), is_integer(Count), Count >= 0 ->
-  WorkerConfig = change_worker_procs_count(State#state.worker_config, WorkerName, Count),
+  Recommended = change_worker_recommended_count(State#state.recommended, WorkerName, Count),
 
-  {noreply, rebalance_after(State#state{worker_config = WorkerConfig})};
+  {noreply, rebalance_after(State#state{recommended = Recommended})};
 
 
 %% change workers count
@@ -244,9 +247,9 @@ handle_cast({increase_workers, WorkerName}, State) when State#state.role == mast
                                                         is_atom(WorkerName) ->
   Instances = get_worker_instances(WorkerName, State#state.workers),
   InstancesCount = length(Instances),
-  WorkerConfig = change_worker_procs_count(State#state.worker_config, WorkerName, InstancesCount + 1),
+  Recommended = change_worker_recommended_count(State#state.recommended, WorkerName, InstancesCount + 1),
 
-  {noreply, rebalance_after(State#state{worker_config = WorkerConfig})};
+  {noreply, rebalance_after(State#state{recommended = Recommended})};
 
 
 %% change workers count
@@ -257,9 +260,9 @@ handle_cast({decrease_workers, WorkerName}, State) when State#state.role == mast
                      X when X > 0 -> X - 1;
                      _ -> 0
                    end ,
-  WorkerConfig = change_worker_procs_count(State#state.worker_config, WorkerName, InstancesCount),
+  Recommended = change_worker_recommended_count(State#state.recommended, WorkerName, InstancesCount),
 
-  {noreply, rebalance_after(State#state{worker_config = WorkerConfig})};
+  {noreply, rebalance_after(State#state{recommended = Recommended})};
 
 
 %% set new workers config
@@ -327,6 +330,34 @@ handle_cast({restart_workers, Workers}, State) when State#state.role == master -
 handle_cast(restart_workers_hard, State) when State#state.role == master ->
   do_restart_workers_hard(State#state.workers),
   {noreply, State};
+
+
+%% lock worker for increasing count
+handle_cast({lock_worker, Worker}, State) when State#state.role == master ->
+  LockedWorkers = case lists:member(Worker, State#state.locked_workers) of
+                    true -> State#state.locked_workers;
+                    _ -> State#state.locked_workers ++ [Worker]
+                  end,
+  {noreply, rebalance_after(State#state{locked_workers = LockedWorkers})};
+
+%% unlock worker
+handle_cast({unlock_worker, Worker}, State) when State#state.role == master ->
+  LockedWorkers = State#state.locked_workers -- [Worker],
+  {noreply, rebalance_after(State#state{locked_workers = LockedWorkers})};
+
+
+%% lock node for increasing workers
+handle_cast({lock_node, Node}, State) when State#state.role == master ->
+  LockedNodes = case lists:member(Node, State#state.locked_nodes) of
+                  true -> State#state.locked_nodes;
+                  _ -> State#state.locked_nodes ++ [Node]
+                end,
+  {noreply, rebalance_after(State#state{locked_nodes = LockedNodes})};
+
+%% unclock node
+handle_cast({unlock_node, Node}, State) when State#state.role == master ->
+  LockedNodes = State#state.locked_nodes -- [Node],
+  {noreply, rebalance_after(State#state{locked_nodes = LockedNodes})};
 
 
 %% Recieve notifications
@@ -623,8 +654,7 @@ do_rebalance(State) ->
   %% ensure there are no unknown workers
   ensure_all_known(State#state.worker_config, State#state.workers),
   %% ensure all workers are runing
-  ?DBG("Ensure runing", []),
-  ensure_runing(start_workers_sort(State#state.worker_config, State#state.workers), State#state.workers, State#state.worker_nodes),
+  ensure_runing(start_workers_sort(State#state.worker_config, State#state.workers), State#state.workers, State#state.worker_nodes, State#state.recommended, State#state.locked_nodes),
   State#state{rebalanced = os:timestamp()}.
 
 
@@ -640,22 +670,21 @@ ensure_all_known(WorkersConfig, Workers) ->
   do_stop_workers(UnknownWorkers).
 
 
-ensure_runing([], _, _) ->
+ensure_runing([], _, _, _, _) ->
   ok;
 
-ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker.enabled =/= true ->
-  ensure_runing(WorkersConfig, Workers, Nodes);
+ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes, Recommended, LockedNodes) when WorkerCfg#worker.enabled =/= true ->
+  ensure_runing(WorkersConfig, Workers, Nodes, Recommended, LockedNodes);
 
-ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker.enabled == true ->
+ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes, Recommended, LockedNodes) when WorkerCfg#worker.enabled == true ->
   ProcsConfig = WorkerCfg#worker.procs,
 
   %% static instances count
   [MinInstances, MaxInstances] = if
                                    ProcsConfig#worker_procs.each_node =/= false ->
                                      Max = if
-                                             is_integer(ProcsConfig#worker_procs.max)
-                                             and ProcsConfig#worker_procs.max > length(Nodes) ->
-                                               ProcsConfig#worker_procs.max;
+                                             is_integer(ProcsConfig#worker_procs.max) ->
+                                               ProcsConfig#worker_procs.max * length(Nodes);
 
                                              true ->
                                                length(Nodes)
@@ -666,7 +695,19 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker
                                      [ProcsConfig#worker_procs.allways, ProcsConfig#worker_procs.allways];
 
                                    true ->
-                                     [ProcsConfig#worker_procs.min, ProcsConfig#worker_procs.max]
+                                     case maps:get(WorkerCfg#worker.name, Recommended, undefined) of
+                                       RecommendedInstances when is_integer(RecommendedInstances) ->
+                                         Min = if
+                                                 RecommendedInstances >= ProcsConfig#worker_procs.min -> RecommendedInstances;
+                                                 true -> ProcsConfig#worker_procs.min
+                                               end,
+                                         Max = if
+                                                 RecommendedInstances < ProcsConfig#worker_procs.max -> Min;
+                                                 true -> ProcsConfig#worker_procs.max
+                                               end,
+                                         [Min, Max];
+                                       _ -> [ProcsConfig#worker_procs.min, ProcsConfig#worker_procs.max]
+                                     end
                                  end,
 
   Instances = get_worker_instances_sorted_by_cpu(WorkerCfg#worker.name, Workers),
@@ -678,7 +719,7 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker
       NewCount = MinInstances - InstancesCount,
       ?DBG("Count instances of ~p is lower than ~p",
         [WorkerCfg#worker.name, MinInstances]),
-      run_workers(NewCount, WorkerCfg, Instances, Nodes, Workers);
+      run_workers(NewCount, WorkerCfg, Instances, Nodes, Workers, LockedNodes);
 
     InstancesCount > MaxInstances ->
       KillCount = InstancesCount - MaxInstances,
@@ -686,7 +727,7 @@ ensure_runing([WorkerCfg | WorkersConfig], Workers, Nodes) when WorkerCfg#worker
         [WorkerCfg#worker.name, MaxInstances]),
       stop_workers(KillCount, WorkerCfg, Instances)
   end,
-  ensure_runing(WorkersConfig, Workers, Nodes).
+  ensure_runing(WorkersConfig, Workers, Nodes, Recommended, LockedNodes).
 
 
 %% run number of new workers
@@ -704,8 +745,10 @@ run_workers(Count, WorkerCfg, Instances, Nodes) ->
   end.
 
 %% run number of new workers
-run_workers(Count, WorkerCfg, Instances, Nodes, Workers) ->
-  AvailableNodes = master_utils:filter_nodes(WorkerCfg, Instances, Nodes),
+run_workers(Count, WorkerCfg, Instances, Nodes, Workers, LockedNodes) ->
+  UnlockedNodes = Nodes -- LockedNodes,
+  AvailableNodes = master_utils:filter_nodes(WorkerCfg, Instances, UnlockedNodes),
+  %%?DBG("get_node_for_worker ~w", [get_node_for_worker(UnlockedNodes, WorkerCfg, Workers, Count)]),
   if
     length(AvailableNodes) > 0 ->
       ?DBG("Run ~p new workers ~p on ~p", [Count, WorkerCfg#worker.name, AvailableNodes]),
@@ -713,9 +756,10 @@ run_workers(Count, WorkerCfg, Instances, Nodes, Workers) ->
 
     true ->
       ?WARN("Can not find proper nodes for worker ~p, looking for low priority workers", [WorkerCfg#worker.name]),
-      case get_node_for_worker(Nodes, WorkerCfg, Workers, Count) of
+      case get_node_for_worker(UnlockedNodes, WorkerCfg, Workers, Count) of
         [{_Node, Instances} | _Tail] ->
           lists:foreach(fun(W) ->
+                            ?WARN("Stop low priority worker ~p", [W]),
                             do_stop_worker(W)
                         end, Instances);
         _ ->
@@ -856,16 +900,8 @@ get_worker_instances(WorkerName, WorkersList) ->
   end, WorkersList).
 
 %% change worker min and max procs count in config
-change_worker_procs_count(WorkersConfig, WorkerName, Count) ->
-  lists:map(fun(Worker) ->
-              Procs = if
-                        Worker#worker.name == WorkerName ->
-                          (Worker#worker.procs)#worker_procs{min = Count, max = Count};
-                        true -> Worker#worker.procs
-                      end,
-              Worker#worker{procs = Procs}
-            end,
-    WorkersConfig).
+change_worker_recommended_count(Recommended, WorkerName, Count) ->
+  maps:put(WorkerName, Count, Recommended).
 
 
 do_restart_worker({Node, Pid, Name}) ->

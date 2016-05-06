@@ -6,12 +6,11 @@
 %%% @end
 %%% Created : 04. июн 2015 1:30
 %%%-------------------------------------------------------------------
--module(monitor_rabbitmq).
+-module(monitor_server).
 -author("alboo").
 
 -behaviour(gen_fsm).
 -include_lib("atlasd.hrl").
--include_lib("rabbitmq_monitor.hrl").
 
 %% API
 -export([
@@ -23,8 +22,9 @@
 
 %% gen_fsm callbacks
 -export([init/1,
-  get_data/2,
-  process/2,
+  connect/2,
+  unlocked/2,
+  locked/2,
   handle_event/3,
   handle_sync_event/4,
   handle_info/3,
@@ -33,12 +33,35 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {
-  task, rake,
-  monitor           :: #rabbitmq_monitor{},
-  queues = []         :: list(),
-  workers_count = 0 :: integer()
+
+-record(server_monitor_auth, {
+  type :: public_key | password,
+  user :: string(),
+  password :: string()
 }).
+
+-record(server_monitor_watermark, {
+  mem = infinity :: infinity | integer(),
+  la  = infinity :: infinity | integer()
+}).
+
+-record(server_monitor, {
+  type       :: atom(),
+  host       :: string(),
+  port       :: integer(),
+  auth       :: #server_monitor_auth{},
+  watermark  :: #server_monitor_watermark{},
+  tasks = [] :: [atom()],
+  nodes = [] :: [atom()]
+}).
+
+-record(state, {
+  server     :: #server_monitor{},
+  connection :: ssh:ssh_connection_ref(),
+  la = 0.0   :: float(),
+  mem = 0    :: integer()
+}).
+
 
 %%%===================================================================
 %%% API
@@ -63,49 +86,42 @@ mode() -> master.
 
 
 %% generates children specs for the supervisor
-children_specs([]) -> [];
-children_specs([Config | Tail]) ->
-  [child_spec(Config) | children_specs(Tail)].
-
-child_spec(Config) when is_record(Config, rabbitmq_monitor), Config#rabbitmq_monitor.process_per_task == true ->
-  lists:map(
-    fun(Task) ->
-      Name = list_to_atom("monitor_rabbitmq_" ++ atom_to_list(Task#rabbitmq_monitor_task.task)),
-      MonitorConfig = Config#rabbitmq_monitor{tasks = [Task]},
-      ?CHILD(Name, ?MODULE, [MonitorConfig])
-    end, Config#rabbitmq_monitor.tasks);
-
-child_spec(Config) when is_record(Config, rabbitmq_monitor) ->
-  Name = list_to_atom("monitor_rabbitmq_" ++ Config#rabbitmq_monitor.host),
-  ?CHILD(Name, ?MODULE, [Config]);
-
-child_spec(_) -> [].
+children_specs(Config) ->
+  lists:map(fun(Server) ->
+                  {list_to_atom("monitor_server_" ++ Server#server_monitor.host), {?MODULE, start_link, [Server]}, permanent, 10000, worker, [?MODULE]}
+            end, Config).
 
 
 %% decode monitor config from json
 decode_config([]) -> [];
 decode_config([RawConfig | Tail]) ->
-  [map_to_record(RawConfig, rabbitmq_monitor) | decode_config(Tail)].
+  [map_to_record(RawConfig, server_monitor) | decode_config(Tail)].
 
-map_to_record(Record, rabbitmq_monitor) ->
-  #rabbitmq_monitor{
-    mode = binary_to_atom(maps:get(<<"mode">>, Record, <<"api">>), utf8),
+map_to_record(Record, server_monitor) ->
+  #server_monitor{
+    type = binary_to_atom(maps:get(<<"type">>, Record), utf8),
     host = binary_to_list(maps:get(<<"host">>, Record)),
-    port = binary_to_list(maps:get(<<"port">>, Record, <<"15672">>)),
-    user = binary_to_list(maps:get(<<"user">>, Record, <<"guest">>)),
-    pass = binary_to_list(maps:get(<<"pass">>, Record, <<"guest">>)),
-    vhost = binary_to_list(maps:get(<<"vhost">>, Record, <<"%2f">>)),
-    exchange = binary_to_list(maps:get(<<"exchange">>, Record, <<"test">>)),
-    process_per_task = util:format_boolean(maps:get(<<"process_per_task">>, Record, false)),
-    tasks = lists:map(fun(Task) -> map_to_record(Task, rabbitmq_monitor_task) end, maps:get(<<"tasks">>, Record, []))
+    port = util:format_integer(maps:get(<<"port">>, Record, 22)),
+    auth = map_to_record(maps:get(<<"auth">>, Record), server_monitor_auth),
+    watermark = map_to_record(maps:get(<<"watermark">>, Record), server_monitor_watermark),
+    tasks = lists:map(fun(Task) -> binary_to_atom(Task, utf8) end, maps:get(<<"tasks">>, Record, [])),
+    nodes = lists:map(fun(Node) -> binary_to_atom(Node, utf8) end, maps:get(<<"nodes">>, Record, []))
   };
 
-map_to_record(Record, rabbitmq_monitor_task) ->
-  #rabbitmq_monitor_task{
-    task = binary_to_atom(maps:get(<<"task">>, Record), utf8),
-    queue = binary_to_list(maps:get(<<"queue">>, Record)),
-    rake = util:format_integer(maps:get(<<"rake">>, Record, 10))
-  }.
+map_to_record(Record, server_monitor_auth) ->
+  #server_monitor_auth{
+    type = binary_to_atom(maps:get(<<"type">>, Record), utf8),
+    user = binary_to_list(maps:get(<<"user">>, Record)),
+    password = binary_to_list(maps:get(<<"password">>, Record))
+  };
+
+map_to_record(Record, server_monitor_watermark) ->
+  #server_monitor_watermark{
+    la = util:format_inf_integer(maps:get(<<"la">>, Record, infinity)),
+    mem = util:format_inf_integer(maps:get(<<"mem">>, Record, infinity))
+  };
+
+map_to_record(_, _) -> undefined.
 
 %%%===================================================================
 %%% gen_fsm callbacks
@@ -124,8 +140,9 @@ map_to_record(Record, rabbitmq_monitor_task) ->
   {ok, StateName :: atom(), StateData :: #state{}} |
   {ok, StateName :: atom(), StateData :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([Config]) ->
-  {ok, get_data, #state{monitor = Config}, 1}.
+init([Server]) when is_record(Server, server_monitor) ->
+  ?DBG("Starting server monitor for host ~p", [Server#server_monitor.host]),
+  {ok, connect, #state{server = Server}, 1}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -138,38 +155,57 @@ init([Config]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(get_data(Event :: term(), State :: #state{}) ->
+-spec(connect(Event :: term(), State :: #state{}) ->
   {next_state, NextStateName :: atom(), NextState :: #state{}} |
   {next_state, NextStateName :: atom(), NextState :: #state{},
     timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
 
-get_data(_Event, #state{monitor = Monitor} = State) when Monitor#rabbitmq_monitor.mode == api,
-                                                         Monitor#rabbitmq_monitor.process_per_task == true ->
-  [Task | _] = Monitor#rabbitmq_monitor.tasks,
-  Data = rabbitmq_api:get_queue_by_name(Monitor, Task#rabbitmq_monitor_task.queue),
-  {next_state, process, State#state{queues = Data}, 1};
+connect(_Event, State) ->
+  Server = State#state.server,
+  Options = [
+    {silently_accept_hosts, true},
+    {user_interaction, false},
+    {disconnectfun, fun (Reason) -> disconnect(self(), Server, Reason) end},
+    {unexpectedfun, fun (Message, Peer) -> unexpected(Server, Message, Peer) end}
+  ] ++ connect_options(Server#server_monitor.auth),
 
-get_data(_Event, #state{monitor = Monitor} = State) when Monitor#rabbitmq_monitor.mode == api ->
-  Data = rabbitmq_api:get_all_queues(Monitor),
-  {next_state, process, State#state{queues = Data}, 1};
+  case ssh:connect(Server#server_monitor.host, Server#server_monitor.port, Options) of
+    {ok, Connection} ->
+      ?LOG("Server monitor successfully connected to host ~p", [Server#server_monitor.host]),
+      {next_state, unlocked, State#state{connection = Connection}, 1};
 
-get_data(_Event, #state{monitor = Monitor} = State) when Monitor#rabbitmq_monitor.mode == native ->
-  ?WARN(?ERROR_UNCOMPLETED),
-  Data = [],
-  {next_state, process, State#state{queues = Data}, 1}.
-
-process(_Event, #state{monitor = Monitor} = State) ->
-  Workers = get_workers_count(Monitor#rabbitmq_monitor.tasks),
-  process_tasks(Monitor#rabbitmq_monitor.tasks, State#state.queues, Workers),
-  {next_state, get_data, State#state{workers_count = Workers}, 10000}.
+    {error, Reason} ->
+      ?ERR("Server monitor for host ~p can not start due to reason ~p", [Server#server_monitor.host, Reason]),
+      {stop, {error, Reason}, State#state{connection = undefined}}
+  end.
 
 
-get_workers_count(Tasks) -> get_workers_count(Tasks, maps:new()).
-get_workers_count([], Result) -> Result;
-get_workers_count([Task | Tail], Result) ->
-  Count = length(master:get_worker_instances(Task#rabbitmq_monitor_task.task)),
-  get_workers_count(Tail, maps:put(Task#rabbitmq_monitor_task.task, Count, Result)).
+
+unlocked(_Event, State) ->
+  {StateName, NewState} = get_next_state(State),
+
+  if
+    StateName /= unlocked ->
+      [atlasd:lock_worker(Task) || Task <- (State#state.server)#server_monitor.tasks],
+      [atlasd:lock_node(Node) || Node <- (State#state.server)#server_monitor.nodes];
+    true -> ok
+  end,
+
+  {next_state, StateName, NewState, 10000}.
+
+locked(_Event, State) ->
+  {StateName, NewState} = get_next_state(State),
+
+  if
+    StateName /= locked ->
+      [atlasd:unlock_worker(Task) || Task <- (State#state.server)#server_monitor.tasks],
+      [atlasd:unlock_node(Node) || Node <- (State#state.server)#server_monitor.nodes];
+    true -> ok
+  end,
+
+  {next_state, StateName, NewState, 10000}.
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -186,6 +222,10 @@ get_workers_count([Task | Tail], Result) ->
   {next_state, NextStateName :: atom(), NewStateData :: #state{},
     timeout() | hibernate} |
   {stop, Reason :: term(), NewStateData :: #state{}}).
+
+handle_event(disconnected, _StateName, State) ->
+  {next_state, connect, State#state{connection = undefined}, 1};
+
 handle_event(_Event, StateName, State) ->
   {next_state, StateName, State, 10000}.
 
@@ -210,7 +250,7 @@ handle_event(_Event, StateName, State) ->
   {stop, Reason :: term(), NewStateData :: term()}).
 
 handle_sync_event(get_data, _From, StateName, State) ->
-  {reply, {State#state.queues, State#state.workers_count}, StateName, State, 10000};
+  {reply, State, StateName, State, 10000};
 
 handle_sync_event(_Event, _From, StateName, State) ->
   {reply, ok, StateName, State, 10000}.
@@ -265,57 +305,84 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-process_tasks([], _, _) -> ok;
-process_tasks([Task | Tasks], Queues, Workers) ->
-  Queue = maps:get(Task#rabbitmq_monitor_task.queue, Queues, #rabbitmq_queue{}),
-  ConsumersCount = maps:get(Task#rabbitmq_monitor_task.task, Workers, 0),
+connect_options(Auth) when Auth#server_monitor_auth.type == public_key ->
+  [];
+connect_options(Auth) when Auth#server_monitor_auth.type == password ->
+  [{user, Auth#server_monitor_auth.user}, {password, Auth#server_monitor_auth.password}];
+connect_options(_Auth) ->
+  ?THROW_ERROR("Unexpected server auth function").
 
-%%  ?DBG("There are ~p messages in queue ~p and ~p consumers for task ~p", [
-%%    Queue#rabbitmq_queue.messages, Queue#rabbitmq_queue.name, ConsumersCount, Task#rabbitmq_monitor_task.task
-%%    ]),
 
-  Estimated_time =
-    if
-      Queue#rabbitmq_queue.ack_rate == 0.0 -> -1;
-      true -> round((Queue#rabbitmq_queue.messages / Queue#rabbitmq_queue.ack_rate) / 60)
-    end,
+disconnect(SelfPid, Server, Reason) ->
+  ?LOG("Server monitor for host ~p is disconnected with reason ~p", [Server#server_monitor.host, Reason]),
+  gen_fsm:send_all_state_event(SelfPid, disconnected).
 
-  if
-    Queue#rabbitmq_queue.messages =:= 0, ConsumersCount =/= 0, Queue#rabbitmq_queue.publish_rate =:= 0.0 ->
-      atlasd:change_workers_count(Task#rabbitmq_monitor_task.task, 0);
+unexpected(Server, Message, _Peer) ->
+  ?WARN("Unexpected message ~p arrives to server monitor for host ~p", [Message, Server#server_monitor.host]),
+  skip.
 
-    Queue#rabbitmq_queue.messages =:= 0, ConsumersCount > 1, Queue#rabbitmq_queue.publish_rate =/= 0.0 ->
-      atlasd:decrease_workers(Task#rabbitmq_monitor_task.task);
-    true -> ok
-  end,
 
-  if
-    Queue#rabbitmq_queue.messages =/= 0, ConsumersCount =:= 0 ->
-      atlasd:change_workers_count(Task#rabbitmq_monitor_task.task, 1);
-    true -> ok
-  end,
 
-  if
-    Queue#rabbitmq_queue.messages =/= 0, ConsumersCount =/= 0, Queue#rabbitmq_queue.messages < ConsumersCount ->
-      atlasd:change_workers_count(Task#rabbitmq_monitor_task.task, Queue#rabbitmq_queue.messages);
-    true -> ok
-  end,
+ssh_exec(SshConnection, Command) ->
+  {ok, SshChannel} = ssh_connection:session_channel(SshConnection, infinity),
+  success = ssh_connection:exec(SshConnection, SshChannel, Command, infinity),
+  Result = get_ssh_response(SshConnection),
+  {ok, Result}.
 
-  if
-    Queue#rabbitmq_queue.messages =/= 0, ConsumersCount =/= 0, Queue#rabbitmq_queue.messages > ConsumersCount ->
-      if
-        Estimated_time > Task#rabbitmq_monitor_task.rake ->
-          atlasd:increase_workers(Task#rabbitmq_monitor_task.task);
 
-        Estimated_time =:= -1, ConsumersCount < 100 ->
-          atlasd:increase_workers(Task#rabbitmq_monitor_task.task);
+get_ssh_response(ConnectionRef) ->
+  get_ssh_response(ConnectionRef, []).
 
-        true -> ok
+get_ssh_response(ConnectionRef, Data) ->
+  receive
+    {ssh_cm, ConnectionRef, Msg} ->
+      case Msg of
+        {closed, _ChannelId} ->
+          Data;
+
+        {data, _ChannelId, _DataType, Bin} ->
+          get_ssh_response(ConnectionRef, Data ++ [Bin]);
+
+        _ ->
+          get_ssh_response(ConnectionRef, Data)
       end;
 
-    true -> ok
-  end,
+    _ ->
+      get_ssh_response(ConnectionRef, Data)
+  end.
 
-  process_tasks(Tasks, Queues, Workers).
+
+get_next_state(State) ->
+  Server = State#state.server,
+  Watermark = (State#state.server)#server_monitor.watermark,
+
+  La = get_server_load_avg(State),
+  ?DBG("Server monitor detected LA ~p on host ~p", [La, Server#server_monitor.host]),
+
+  Mem = get_server_memory_usage(State),
+  ?DBG("Server monitor detected Memory usage ~p percents on host ~p", [Mem, Server#server_monitor.host]),
+
+  NewState = State#state{la = La, mem = Mem},
+
+  if
+    (La > Watermark#server_monitor_watermark.la) or
+      (Mem > Watermark#server_monitor_watermark.mem) ->
+      {locked, NewState};
+    true ->
+      {unlocked, NewState}
+  end.
 
 
+get_server_load_avg(State) ->
+  Server = State#state.server,
+  {ok, Response} = ssh_exec(State#state.connection, "cat /proc/loadavg"),
+  ?DBG("Server monitor recieve LA message ~p from host ~p", [Response, Server#server_monitor.host]),
+
+  try
+    [BinLa | _] = binary:split(Response, <<" ">>),
+    binary_to_float(BinLa)
+  catch
+    _:_ -> 0
+  end.
+
+get_server_memory_usage(_State) -> 0.
