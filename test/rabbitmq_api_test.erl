@@ -13,7 +13,7 @@
 
 -record(state, {
   mode = api :: api | native,
-  host = "***REMOVED***",
+  host = "dbx.pravo.ru",
   port = "15672",
   user = "guest",
   pass = "guest",

@@ -21,7 +21,7 @@ up() ->
 %%    #monitor{
 %%      name = monitor_rabbitmq,
 %%      config = #rabbitmq_monitor{
-%%        host = "***REMOVED***",
+%%        host = "dbx.pravo.ru",
 %%        tasks = [
 %%          #rabbitmq_monitor_task{
 %%            task = "task-listen-middle",
