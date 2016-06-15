@@ -4,6 +4,9 @@
 -include_lib("elli/include/elli.hrl").
 -behaviour(elli_handler).
 -include_lib("atlasd.hrl").
+-include_lib("kernel/include/file.hrl").
+
+-export([render/2]).
 
 %%
 %% ELLI REQUEST CALLBACK
@@ -17,11 +20,20 @@ handle(Req, _Args) ->
 handle('GET',[<<"nodes">>], _Req) ->
   {Response_status, Nodes} = atlasd:get_nodes(),
 
-  Response = jiffy:encode(#{
-    <<"status">> => Response_status,
-    <<"nodes">> => Nodes
-  }),
-  {ok, [], Response};
+  Nodes_sorted_list = lists:sort(
+    fun(Node1, Node2) -> maps:get(master_node, element(2, Node1)) =:= true end,
+    maps:to_list(Nodes)
+  ),
+
+  Nodes_list_html = render(Nodes_sorted_list, ""),
+  Data = dict:from_list([
+    {title, "Nodes"},
+    {content, Nodes_list_html}
+  ]),
+  {ok, Layout} = file:read_file('/apps/atlasd/assets/layout.html'),
+  Html = mustache:render(binary_to_list(Layout), Data),
+
+  {ok, [], Html};
 
 handle('GET',[<<"worker">>, <<"log">>, Pid, LineId], _Req) ->
   TargetWorker = "<" ++ binary_to_list(Pid) ++ ">",
@@ -47,6 +59,47 @@ handle(_, _, _Req) ->
   {404, [], <<"Not Found">>}.
 
 
+render([], Result) -> Result;
+render([Node | Nodes], Result) ->
+  {ok, Widget} = file:read_file('/apps/atlasd/assets/widgets/node.item.html'),
+
+  Node_data = element(2,Node),
+
+  Name = maps:get(name, Node_data),
+
+  Is_master_node = maps:get(master_node, Node_data),
+  Master_tag = case Is_master_node of
+                 true -> "<span class=\"label label-primary\">Master</span>";
+                 false -> ""
+               end,
+
+  Is_master = maps:get(is_master, Node_data),
+  Is_worker = maps:get(is_worker, Node_data),
+  Master = case Is_master of true -> "<span class=\"badge\">Master</span>"; false -> "" end,
+  Worker = case Is_worker of true -> "<span class=\"badge\">Worker</span>"; false -> "" end,
+  Ability = Master ++ Worker,
+
+  Stats = maps:get(stats, Node_data),
+
+  Per_cpu = maps:get(per_cpu, maps:get(cpu, Stats)),
+  Per_cpu_html = case Per_cpu of
+    [] -> "";
+    _ -> string:join(lists:map(fun(Int) -> io_lib:format("~.6f", [Int]) end, maps:get(per_cpu, maps:get(cpu, Stats))), "<br>")
+  end,
+
+  Data = dict:from_list([
+    {name, Name},
+    {master_tag, Master_tag},
+    {ability, Ability},
+    {free_memory, maps:get(free_memory, maps:get(mem, Stats))},
+    {allocated_memory, maps:get(allocated_memory, maps:get(mem, Stats))},
+    {overloaded, maps:get(overloaded, Stats)},
+    {load_average, maps:get(load_average, maps:get(cpu, Stats))},
+    {per_cpu, Per_cpu_html}
+  ]),
+
+  Html = mustache:render(binary_to_list(Widget), Data),
+  render(Nodes, Result ++ Html).
 
 %%
 %% ELLI EVENT CALLBACKS
